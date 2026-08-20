@@ -1,0 +1,11 @@
+[targets.test]
+command = "cargo test --locked"
+
+[targets.test-ci]
+command = "cargo test --locked --all-targets"
+
+[targets.lint]
+command = "cargo clippy --all-targets -- -D warnings"
+
+[targets.build]
+command = "cargo build --locked"

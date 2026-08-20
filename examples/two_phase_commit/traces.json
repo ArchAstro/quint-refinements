@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 2,
+  "modelDigest": "sha256:two-phase-commit-example",
+  "vocabulary": {
+    "actions": ["abort", "begin", "commitPrepared", "flushWal", "prepare"],
+    "capabilities": ["txn.commit"],
+    "expressionOperators": ["eq", "field"],
+    "expressionNames": ["Aborted", "Committed", "Idle", "Open", "Prepared", "state"],
+    "runtimeObservationDependencies": [
+      "name:Aborted",
+      "name:Committed",
+      "name:Idle",
+      "name:Open",
+      "name:Prepared",
+      "name:state",
+      "operator:eq",
+      "operator:field",
+      "path:state.flushed",
+      "path:state.status",
+      "path:state.wal_len"
+    ],
+    "runtimeObservationDependencyDigest": "sha256:d2ba79cb04bdb71d9a99e3fc1d7f62de25beff7ff8b2d780e7a2d80a3c870166"
+  },
+  "fixtures": {
+    "two_phase_commit": {}
+  },
+  "scenarios": [
+    {
+      "source": "model.qnt",
+      "module": "two_phase_commit",
+      "fixtureNamespace": "two_phase_commit",
+      "name": "commitRun",
+      "requiredCapabilities": ["txn.commit"],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "init",
+          "action": "init",
+          "arguments": []
+        },
+        {
+          "index": 1,
+          "kind": "action",
+          "action": "begin",
+          "arguments": [],
+          "guards": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      { "kind": "name", "value": "state" },
+                      { "kind": "str", "value": "status" }
+                    ]
+                  },
+                  { "kind": "name", "value": "Idle" }
+                ]
+              },
+              "dependencies": [
+                "name:Idle",
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.status"
+              ]
+            }
+          ],
+          "next": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      { "kind": "name", "value": "state" },
+                      { "kind": "str", "value": "status" }
+                    ]
+                  },
+                  { "kind": "name", "value": "Open" }
+                ]
+              },
+              "dependencies": [
+                "name:Open",
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.status"
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "kind": "action",
+          "action": "prepare",
+          "arguments": [],
+          "guards": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      { "kind": "name", "value": "state" },
+                      { "kind": "str", "value": "status" }
+                    ]
+                  },
+                  { "kind": "name", "value": "Open" }
+                ]
+              },
+              "dependencies": [
+                "name:Open",
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.status"
+              ]
+            }
+          ],
+          "next": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      { "kind": "name", "value": "state" },
+                      { "kind": "str", "value": "status" }
+                    ]
+                  },
+                  { "kind": "name", "value": "Prepared" }
+                ]
+              },
+              "dependencies": [
+                "name:Prepared",
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.status"
+              ]
+            }
+          ]
+        },
+        {
+          "index": 3,
+          "kind": "action",
+          "action": "flushWal",
+          "arguments": [],
+          "guards": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      { "kind": "name", "value": "state" },
+                      { "kind": "str", "value": "status" }
+                    ]
+                  },
+                  { "kind": "name", "value": "Prepared" }
+                ]
+              },
+              "dependencies": [
+                "name:Prepared",
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.status"
+              ]
+            }
+          ],
+          "next": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      { "kind": "name", "value": "state" },
+                      { "kind": "str", "value": "flushed" }
+                    ]
+                  },
+                  { "kind": "bool", "value": true }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.flushed"
+              ]
+            }
+          ]
+        },
+        {
+          "index": 4,
+          "kind": "action",
+          "action": "commitPrepared",
+          "arguments": [],
+          "guards": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      { "kind": "name", "value": "state" },
+                      { "kind": "str", "value": "flushed" }
+                    ]
+                  },
+                  { "kind": "bool", "value": true }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.flushed"
+              ]
+            }
+          ],
+          "next": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      { "kind": "name", "value": "state" },
+                      { "kind": "str", "value": "status" }
+                    ]
+                  },
+                  { "kind": "name", "value": "Committed" }
+                ]
+              },
+              "dependencies": [
+                "name:Committed",
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.status"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
