@@ -2,10 +2,30 @@
   "schemaVersion": 2,
   "modelDigest": "sha256:two-phase-commit-example",
   "vocabulary": {
-    "actions": ["abort", "begin", "commitPrepared", "flushWal", "prepare"],
-    "capabilities": ["txn.commit"],
-    "expressionOperators": ["eq", "field"],
-    "expressionNames": ["Aborted", "Committed", "Idle", "Open", "Prepared", "state"],
+    "actions": [
+      "abort",
+      "begin",
+      "commitPrepared",
+      "flushWal",
+      "prepare"
+    ],
+    "capabilities": [
+      "txn.commit"
+    ],
+    "expressionOperators": [
+      "contains",
+      "eq",
+      "field"
+    ],
+    "expressionNames": [
+      "Aborted",
+      "Committed",
+      "Idle",
+      "Open",
+      "Prepared",
+      "state",
+      "statuses"
+    ],
     "runtimeObservationDependencies": [
       "name:Aborted",
       "name:Committed",
@@ -13,16 +33,31 @@
       "name:Open",
       "name:Prepared",
       "name:state",
+      "name:statuses",
+      "operator:contains",
       "operator:eq",
       "operator:field",
       "path:state.flushed",
       "path:state.status",
       "path:state.wal_len"
     ],
-    "runtimeObservationDependencyDigest": "sha256:d2ba79cb04bdb71d9a99e3fc1d7f62de25beff7ff8b2d780e7a2d80a3c870166"
+    "runtimeObservationDependencyDigest": "sha256:two-phase-commit-example"
   },
   "fixtures": {
-    "two_phase_commit": {}
+    "two_phase_commit": {
+      "Aborted": "Aborted",
+      "Committed": "Committed",
+      "Idle": "Idle",
+      "Open": "Open",
+      "Prepared": "Prepared",
+      "statuses": [
+        "Aborted",
+        "Committed",
+        "Idle",
+        "Open",
+        "Prepared"
+      ]
+    }
   },
   "scenarios": [
     {
@@ -30,7 +65,9 @@
       "module": "two_phase_commit",
       "fixtureNamespace": "two_phase_commit",
       "name": "commitRun",
-      "requiredCapabilities": ["txn.commit"],
+      "requiredCapabilities": [
+        "txn.commit"
+      ],
       "steps": [
         {
           "index": 0,
@@ -45,6 +82,40 @@
           "arguments": [],
           "guards": [
             {
+              "scope": "model",
+              "expression": {
+                "kind": "call",
+                "operator": "contains",
+                "arguments": [
+                  {
+                    "kind": "name",
+                    "value": "statuses"
+                  },
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "name:statuses",
+                "operator:contains",
+                "operator:field",
+                "path:state.status"
+              ]
+            },
+            {
               "scope": "runtime",
               "expression": {
                 "kind": "call",
@@ -54,11 +125,20 @@
                     "kind": "call",
                     "operator": "field",
                     "arguments": [
-                      { "kind": "name", "value": "state" },
-                      { "kind": "str", "value": "status" }
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
                     ]
                   },
-                  { "kind": "name", "value": "Idle" }
+                  {
+                    "kind": "name",
+                    "value": "Idle"
+                  }
                 ]
               },
               "dependencies": [
@@ -81,11 +161,20 @@
                     "kind": "call",
                     "operator": "field",
                     "arguments": [
-                      { "kind": "name", "value": "state" },
-                      { "kind": "str", "value": "status" }
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
                     ]
                   },
-                  { "kind": "name", "value": "Open" }
+                  {
+                    "kind": "name",
+                    "value": "Open"
+                  }
                 ]
               },
               "dependencies": [
@@ -105,6 +194,40 @@
           "arguments": [],
           "guards": [
             {
+              "scope": "model",
+              "expression": {
+                "kind": "call",
+                "operator": "contains",
+                "arguments": [
+                  {
+                    "kind": "name",
+                    "value": "statuses"
+                  },
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "name:statuses",
+                "operator:contains",
+                "operator:field",
+                "path:state.status"
+              ]
+            },
+            {
               "scope": "runtime",
               "expression": {
                 "kind": "call",
@@ -114,11 +237,20 @@
                     "kind": "call",
                     "operator": "field",
                     "arguments": [
-                      { "kind": "name", "value": "state" },
-                      { "kind": "str", "value": "status" }
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
                     ]
                   },
-                  { "kind": "name", "value": "Open" }
+                  {
+                    "kind": "name",
+                    "value": "Open"
+                  }
                 ]
               },
               "dependencies": [
@@ -141,11 +273,20 @@
                     "kind": "call",
                     "operator": "field",
                     "arguments": [
-                      { "kind": "name", "value": "state" },
-                      { "kind": "str", "value": "status" }
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
                     ]
                   },
-                  { "kind": "name", "value": "Prepared" }
+                  {
+                    "kind": "name",
+                    "value": "Prepared"
+                  }
                 ]
               },
               "dependencies": [
@@ -165,6 +306,40 @@
           "arguments": [],
           "guards": [
             {
+              "scope": "model",
+              "expression": {
+                "kind": "call",
+                "operator": "contains",
+                "arguments": [
+                  {
+                    "kind": "name",
+                    "value": "statuses"
+                  },
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "name:statuses",
+                "operator:contains",
+                "operator:field",
+                "path:state.status"
+              ]
+            },
+            {
               "scope": "runtime",
               "expression": {
                 "kind": "call",
@@ -174,11 +349,20 @@
                     "kind": "call",
                     "operator": "field",
                     "arguments": [
-                      { "kind": "name", "value": "state" },
-                      { "kind": "str", "value": "status" }
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
                     ]
                   },
-                  { "kind": "name", "value": "Prepared" }
+                  {
+                    "kind": "name",
+                    "value": "Prepared"
+                  }
                 ]
               },
               "dependencies": [
@@ -187,6 +371,39 @@
                 "operator:eq",
                 "operator:field",
                 "path:state.status"
+              ]
+            },
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "flushed"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "bool",
+                    "value": false
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.flushed"
               ]
             }
           ],
@@ -201,11 +418,20 @@
                     "kind": "call",
                     "operator": "field",
                     "arguments": [
-                      { "kind": "name", "value": "state" },
-                      { "kind": "str", "value": "flushed" }
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "flushed"
+                      }
                     ]
                   },
-                  { "kind": "bool", "value": true }
+                  {
+                    "kind": "bool",
+                    "value": true
+                  }
                 ]
               },
               "dependencies": [
@@ -224,6 +450,40 @@
           "arguments": [],
           "guards": [
             {
+              "scope": "model",
+              "expression": {
+                "kind": "call",
+                "operator": "contains",
+                "arguments": [
+                  {
+                    "kind": "name",
+                    "value": "statuses"
+                  },
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "name:statuses",
+                "operator:contains",
+                "operator:field",
+                "path:state.status"
+              ]
+            },
+            {
               "scope": "runtime",
               "expression": {
                 "kind": "call",
@@ -233,11 +493,54 @@
                     "kind": "call",
                     "operator": "field",
                     "arguments": [
-                      { "kind": "name", "value": "state" },
-                      { "kind": "str", "value": "flushed" }
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
                     ]
                   },
-                  { "kind": "bool", "value": true }
+                  {
+                    "kind": "name",
+                    "value": "Prepared"
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:Prepared",
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.status"
+              ]
+            },
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "flushed"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "bool",
+                    "value": true
+                  }
                 ]
               },
               "dependencies": [
@@ -259,11 +562,20 @@
                     "kind": "call",
                     "operator": "field",
                     "arguments": [
-                      { "kind": "name", "value": "state" },
-                      { "kind": "str", "value": "status" }
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "status"
+                      }
                     ]
                   },
-                  { "kind": "name", "value": "Committed" }
+                  {
+                    "kind": "name",
+                    "value": "Committed"
+                  }
                 ]
               },
               "dependencies": [

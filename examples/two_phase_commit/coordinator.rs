@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use quint_refinements::{
-    ConformanceArtifact, NormalizedRuntimeEvidence, OwnershipTable, PrimitiveDriver, RuntimeValue,
-    collect_ownership_records, quint_ownership, refine_scenario,
+    ConformanceArtifact, FixtureTable, NormalizedRuntimeEvidence, OwnershipTable, PrimitiveDriver,
+    QuintFixture, RuntimeValue, collect_ownership_records, quint_ownership, refine_scenario,
 };
 
 quint_ownership! {
@@ -23,18 +23,14 @@ quint_ownership! {
     };
 }
 
-const OWNERSHIP: OwnershipTable = OwnershipTable {
+pub const OWNERSHIP: OwnershipTable = OwnershipTable {
     owner: "two-phase-commit-example",
     descriptors: &[BEGIN_OWNERSHIP, COMMIT_OWNERSHIP],
 };
 
 const RETRIEVE: &[&str] = &[
-    "name:Aborted",
-    "name:Committed",
-    "name:Idle",
-    "name:Open",
-    "name:Prepared",
     "name:state",
+    "operator:contains",
     "operator:eq",
     "operator:field",
     "path:state.flushed",
@@ -50,7 +46,6 @@ pub enum Status {
     Open,
     Prepared,
     Committed,
-    #[allow(dead_code)]
     Aborted,
 }
 
@@ -66,6 +61,36 @@ impl Status {
     }
 }
 
+impl QuintFixture for Status {
+    fn artifact_json(&self) -> serde_json::Value {
+        serde_json::Value::String(self.as_str().to_owned())
+    }
+
+    fn runtime_value(&self) -> RuntimeValue {
+        RuntimeValue::Text(self.as_str().to_owned())
+    }
+}
+
+/// Quint `Idle`/`statuses` are this enum, not a parallel test twin.
+pub fn fixture_table() -> FixtureTable {
+    FixtureTable::new("two_phase_commit")
+        .insert("Aborted", &Status::Aborted)
+        .insert("Committed", &Status::Committed)
+        .insert("Idle", &Status::Idle)
+        .insert("Open", &Status::Open)
+        .insert("Prepared", &Status::Prepared)
+        .insert_set(
+            "statuses",
+            &[
+                Status::Aborted,
+                Status::Committed,
+                Status::Idle,
+                Status::Open,
+                Status::Prepared,
+            ],
+        )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Snapshot {
     pub status: Status,
@@ -76,9 +101,6 @@ pub struct Snapshot {
 impl NormalizedRuntimeEvidence for Snapshot {
     fn resolve_name(&self, name: &str) -> Result<RuntimeValue, String> {
         match name {
-            "Idle" | "Open" | "Prepared" | "Committed" | "Aborted" => {
-                Ok(RuntimeValue::Text(name.to_owned()))
-            }
             "state" => Ok(RuntimeValue::Record(BTreeMap::from([
                 (
                     "status".to_owned(),
@@ -119,6 +141,11 @@ impl Coordinator {
                 flushed: false,
             },
         }
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> Snapshot {
+        self.snapshot.clone()
     }
 
     fn begin(&mut self) -> Result<(), String> {
@@ -207,12 +234,17 @@ pub fn refine_commit_run() -> Result<usize, String> {
         .first()
         .ok_or_else(|| "commitRun missing".to_owned())?;
     let ownership = collect_ownership_records(&[OWNERSHIP]).map_err(|error| error.to_string())?;
+    let fixtures = fixture_table();
+    fixtures
+        .validate(&artifact)
+        .map_err(|error| error.to_string())?;
     let mut driver = Coordinator::new();
     refine_scenario(
         scenario,
-        driver.snapshot.clone(),
+        driver.snapshot(),
         &ownership,
         RETRIEVE,
+        &fixtures,
         &mut driver,
     )
 }

@@ -22,7 +22,10 @@ story**. This crate makes execution generic too.
 3. `schedule_primitive_runs` maps JSON actions onto primitive runs.
 4. `PrimitiveDriver::run_primitive` runs **one** impl command and returns
    **exactly** `owned_actions.len()` snapshots, in that order.
-5. `refine_scenario` evaluates retrieve-before guards and retrieve-after next.
+5. Rust structs own Quint fixture names (`FixtureTable` / `QuintFixture`).
+6. `refine_scenario` evaluates **every** retrieve-before guard and retrieve-after
+   next conjunct. Fixture names resolve from the table; `state` resolves from
+   the snapshot. Nothing is skipped.
 
 1-to-N is declared, not inferred:
 
@@ -42,21 +45,47 @@ JSON names for a 1-step refine only (`openConnection` / `openConnectionForRuntim
 A flat `actions` list still means independent 1-step names (coverage ownership
 of several commands), not a sequence.
 
+## Fixtures
+
+Quint `pure val` names (`Idle`, `attemptA`) and universe sets
+(`statuses.contains(...)`) are not model-only skips. They are Rust values
+that must match the JSON artifact:
+
+```rust
+impl QuintFixture for Status { /* artifact_json + runtime_value */ }
+
+let fixtures = FixtureTable::new("two_phase_commit")
+    .insert("Idle", &Status::Idle)
+    .insert_set("statuses", &[Status::Idle, Status::Open, /* ... */]);
+fixtures.validate(&artifact)?;
+```
+
+- **Fixture names** — production (or example) structs. Validate fails if a JSON
+  name has no owner or if the JSON shape drifted from the struct.
+- **Live `state.*`** — retrieve-before / retrieve-after snapshots.
+- **Observe `*Inv` theorems** — still Quint-only; those are not action guards.
+
+`evaluate_every_action_step` still skips `scope: model` for unmigrated
+gateway runners. `refine_scenario` does not.
+
 ## Plug-in surface (what an app provides)
 
 - Quint sources plus a generate config (vocab, retrieve sets, source glob).
 - `quint_ownership!` on each implementation primitive.
+- A `FixtureTable` of real structs for every Quint name the JSON uses.
 - A `PrimitiveDriver` that knows how to run those primitive ids.
-- `NormalizedRuntimeEvidence` for domain snapshots.
+- `NormalizedRuntimeEvidence` for domain snapshots (`state` only).
 
 Coverage policy (which scenarios are required, `coverage.toml`) stays in the
 product. This crate does not know Arch Gateway.
 
 ## Generate
 
-`harness/generate.mjs` runs `quint test --out-itf`, extracts runs, classifies
-guards, and attaches per-action `next` from ITF deltas. The Quint app supplies
-vocab and retrieve maps; the engine does not hard-code connector action names.
+`harness/generate.mjs` runs `quint test --out-itf`, extracts runs, encodes
+**every** `all { }` conjunct: unprimed predicates as before-guards, `x' = e`
+as after (`assign`). Unknown AST kinds fail closed. Observe keeps the closed
+adapter vocabulary. ITF last_* deltas are extra runtime next, not a substitute
+for the Quint assignment.
 
 ## Example
 

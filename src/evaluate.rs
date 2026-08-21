@@ -50,6 +50,7 @@ pub fn evaluate_runtime_assertions(
             assertions,
             evidence,
             supported_dependencies,
+            true,
         )?;
     }
 
@@ -61,6 +62,9 @@ pub fn evaluate_runtime_assertions(
 
 /// Evaluates guard assertions on the retrieve-before snapshot and next-state
 /// assertions on the retrieve-after snapshot for one action step.
+///
+/// Model-scope conjuncts are skipped. Prefer [`evaluate_all_step_obligations`]
+/// once the scenario's Quint names have Rust fixture owners.
 pub fn evaluate_step_obligations(
     scenario_id: &str,
     action: &str,
@@ -70,19 +74,16 @@ pub fn evaluate_step_obligations(
     after: &impl NormalizedRuntimeEvidence,
     retrieve: &[&str],
 ) -> Result<usize, String> {
-    if guards.is_empty() && next.is_empty() {
-        return Ok(0);
-    }
-    let context = format!("{scenario_id}:{action}");
-    let mut evaluated = 0;
-    evaluated += evaluate_assertions(&context, "guard", guards, before, retrieve)?;
-    evaluated += evaluate_assertions(&context, "next", next, after, retrieve)?;
-    if evaluated == 0 {
-        return Err(format!(
-            "{context} declared step obligations but evaluated none"
-        ));
-    }
-    Ok(evaluated)
+    evaluate_step_obligations_inner(
+        scenario_id,
+        action,
+        guards,
+        next,
+        before,
+        after,
+        retrieve,
+        true,
+    )
 }
 
 /// Evaluates each Observe chapter's preceding action `next` against the same
@@ -139,6 +140,47 @@ pub fn evaluate_every_action_step<E: NormalizedRuntimeEvidence>(
     snapshots: &[E],
     retrieve: &[&str],
 ) -> Result<usize, String> {
+    evaluate_action_steps(scenario, snapshots, retrieve, true)
+}
+
+/// Like [`evaluate_every_action_step`], but every guard and next conjunct
+/// runs. Fixture-backed names belong on `retrieve` as `name:<fixture>`.
+pub fn evaluate_all_action_steps<E: NormalizedRuntimeEvidence>(
+    scenario: &ArtifactScenario,
+    snapshots: &[E],
+    retrieve: &[&str],
+) -> Result<usize, String> {
+    evaluate_action_steps(scenario, snapshots, retrieve, false)
+}
+
+/// Evaluates every guard and next conjunct, including model-scope.
+pub fn evaluate_all_step_obligations(
+    scenario_id: &str,
+    action: &str,
+    guards: &[ArtifactAssertion],
+    next: &[ArtifactAssertion],
+    before: &impl NormalizedRuntimeEvidence,
+    after: &impl NormalizedRuntimeEvidence,
+    retrieve: &[&str],
+) -> Result<usize, String> {
+    evaluate_step_obligations_inner(
+        scenario_id,
+        action,
+        guards,
+        next,
+        before,
+        after,
+        retrieve,
+        false,
+    )
+}
+
+fn evaluate_action_steps<E: NormalizedRuntimeEvidence>(
+    scenario: &ArtifactScenario,
+    snapshots: &[E],
+    retrieve: &[&str],
+    skip_model: bool,
+) -> Result<usize, String> {
     let actions = scenario
         .steps
         .iter()
@@ -162,7 +204,7 @@ pub fn evaluate_every_action_step<E: NormalizedRuntimeEvidence>(
     }
     let mut evaluated = 0;
     for (index, (action, guards, next)) in actions.iter().enumerate() {
-        evaluated += evaluate_step_obligations(
+        evaluated += evaluate_step_obligations_inner(
             &scenario.id(),
             action,
             guards,
@@ -170,7 +212,90 @@ pub fn evaluate_every_action_step<E: NormalizedRuntimeEvidence>(
             &snapshots[index],
             &snapshots[index + 1],
             retrieve,
+            skip_model,
         )?;
+    }
+    Ok(evaluated)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_step_obligations_inner(
+    scenario_id: &str,
+    action: &str,
+    guards: &[ArtifactAssertion],
+    next: &[ArtifactAssertion],
+    before: &impl NormalizedRuntimeEvidence,
+    after: &impl NormalizedRuntimeEvidence,
+    retrieve: &[&str],
+    skip_model: bool,
+) -> Result<usize, String> {
+    if guards.is_empty() && next.is_empty() {
+        return Ok(0);
+    }
+    let context = format!("{scenario_id}:{action}");
+    let mut evaluated = 0;
+    evaluated += evaluate_assertions(&context, "guard", guards, before, retrieve, skip_model)?;
+    let (assigns, other_next): (Vec<_>, Vec<_>) = next
+        .iter()
+        .cloned()
+        .partition(|assertion| is_assign(&assertion.expression));
+    evaluated += evaluate_assertions(&context, "next", &other_next, after, retrieve, skip_model)?;
+    evaluated += evaluate_assigns(&context, &assigns, before, after, retrieve, skip_model)?;
+    if evaluated == 0 {
+        return Err(format!(
+            "{context} declared step obligations but evaluated none"
+        ));
+    }
+    Ok(evaluated)
+}
+
+fn is_assign(expression: &serde_json::Value) -> bool {
+    expression["kind"].as_str() == Some("call") && expression["operator"].as_str() == Some("assign")
+}
+
+fn evaluate_assigns(
+    context: &str,
+    assertions: &[ArtifactAssertion],
+    before: &impl NormalizedRuntimeEvidence,
+    after: &impl NormalizedRuntimeEvidence,
+    supported_dependencies: &[&str],
+    skip_model: bool,
+) -> Result<usize, String> {
+    let supported = supported_dependencies
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let mut evaluated = 0;
+    for assertion in assertions {
+        if skip_model && assertion.scope == AssertionScope::Model {
+            continue;
+        }
+        if let Some(dependency) = assertion
+            .dependencies
+            .iter()
+            .find(|dependency| !dependency_is_supported(dependency, &supported))
+        {
+            return Err(format!(
+                "{context} next uses unsupported runtime dependency {dependency}"
+            ));
+        }
+        let arguments = assertion.expression["arguments"]
+            .as_array()
+            .ok_or_else(|| format!("{context} assign has no arguments"))?;
+        let [left, right] = arguments.as_slice() else {
+            return Err(format!("{context} assign requires a variable and an expression"));
+        };
+        // Quint: RHS of x' = e is evaluated in the current state; LHS is the next state.
+        let expected = evaluate_expression(right, before, &BTreeMap::new())?;
+        let observed = evaluate_expression(left, after, &BTreeMap::new())?;
+        if expected == observed {
+            evaluated += 1;
+        } else {
+            return Err(format!(
+                "next assignment evaluated false in {context}: {}",
+                assertion.expression
+            ));
+        }
     }
     Ok(evaluated)
 }
@@ -181,6 +306,7 @@ fn evaluate_assertions(
     assertions: &[ArtifactAssertion],
     evidence: &impl NormalizedRuntimeEvidence,
     supported_dependencies: &[&str],
+    skip_model: bool,
 ) -> Result<usize, String> {
     let supported = supported_dependencies
         .iter()
@@ -188,7 +314,7 @@ fn evaluate_assertions(
         .collect::<BTreeSet<_>>();
     let mut evaluated = 0;
     for assertion in assertions {
-        if assertion.scope == AssertionScope::Model {
+        if skip_model && assertion.scope == AssertionScope::Model {
             continue;
         }
         if let Some(dependency) = assertion
@@ -222,7 +348,13 @@ fn evaluate_assertions(
 fn dependency_is_supported(dependency: &str, supported: &BTreeSet<&str>) -> bool {
     matches!(
         dependency,
-        "operator:eq" | "operator:neq" | "operator:not" | "operator:actionAll"
+        "operator:eq"
+            | "operator:neq"
+            | "operator:not"
+            | "operator:actionAll"
+            | "operator:contains"
+            | "operator:field"
+            | "operator:assign"
     ) || supported.contains(dependency)
 }
 
@@ -254,8 +386,23 @@ fn evaluate_expression(
                 .map_or_else(|| evidence.resolve_name(name), Ok)
         }
         Some("call") => evaluate_call(expression, evidence, environment),
+        Some("let") => evaluate_let(expression, evidence, environment),
         _ => Err("unsupported normalized expression kind".to_owned()),
     }
+}
+
+fn evaluate_let(
+    expression: &serde_json::Value,
+    evidence: &impl NormalizedRuntimeEvidence,
+    environment: &BTreeMap<String, RuntimeValue>,
+) -> Result<RuntimeValue, String> {
+    let name = expression["name"]
+        .as_str()
+        .ok_or_else(|| "normalized let has no name".to_owned())?;
+    let value = evaluate_expression(&expression["value"], evidence, environment)?;
+    let mut nested = environment.clone();
+    nested.insert(name.to_owned(), value);
+    evaluate_expression(&expression["body"], evidence, &nested)
 }
 
 fn evaluate_call(

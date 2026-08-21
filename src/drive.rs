@@ -1,5 +1,6 @@
 use crate::artifact::ArtifactScenario;
-use crate::evaluate::{NormalizedRuntimeEvidence, evaluate_every_action_step};
+use crate::evaluate::{NormalizedRuntimeEvidence, evaluate_all_action_steps};
+use crate::fixtures::{BoundEvidence, FixtureTable};
 use crate::ownership::OwnershipDescriptor;
 use crate::schedule::collect_owned_action_snapshots;
 
@@ -20,17 +21,28 @@ pub trait PrimitiveDriver {
 }
 
 /// Walk the generated JSON through ownership records, run each primitive
-/// once, and evaluate guards/next on the resulting tape.
+/// once, and evaluate **every** guard/next conjunct on the resulting tape.
+///
+/// `fixtures` owns Quint names (`Idle`, `attemptA`, universe sets). Snapshots
+/// own live `state`. Model-scope conjuncts are not skipped.
 pub fn refine_scenario<D: PrimitiveDriver>(
     scenario: &ArtifactScenario,
     init: D::Evidence,
     ownership: &[OwnershipDescriptor],
     retrieve: &[&str],
+    fixtures: &FixtureTable,
     driver: &mut D,
 ) -> Result<usize, String> {
     let snapshots =
         collect_owned_action_snapshots(scenario, init, ownership, |primitive, owned_actions| {
             driver.run_primitive(primitive, owned_actions)
         })?;
-    evaluate_every_action_step(scenario, &snapshots, retrieve)
+    let bound = snapshots
+        .iter()
+        .map(|snapshot| BoundEvidence { fixtures, snapshot })
+        .collect::<Vec<_>>();
+    let extra = fixtures.retrieve_names();
+    let mut bound_retrieve = retrieve.to_vec();
+    bound_retrieve.extend(extra.iter().map(String::as_str));
+    evaluate_all_action_steps(scenario, &bound, &bound_retrieve)
 }

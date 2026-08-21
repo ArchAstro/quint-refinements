@@ -23,6 +23,10 @@ quint_ownership! {
 }
 ```
 
+`Status` is the Quint fixture: `Idle`/`Open`/… and the `statuses` set are the
+same enum, not a parallel test twin. `state.status` is the snapshot.
+`traces.json` must list those fixtures; `FixtureTable::validate` compares JSON.
+
 `traces.json` is the checked artifact for `commitRun`. `model.qnt` typechecks
 with Quint (`quint typecheck model.qnt`).
 

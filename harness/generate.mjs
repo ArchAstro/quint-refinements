@@ -376,6 +376,16 @@ export function parseConformanceCapabilities(doc, context = "declaration") {
 }
 
 export function encodeExpression(node, context = "expression", boundNames = new Set()) {
+  return encodeExpressionNode(node, context, boundNames, true);
+}
+
+/// Guard conjuncts use the full Quint expression AST. Observe chapters keep
+/// the closed adapter vocabulary.
+export function encodeGuardExpression(node, context = "expression", boundNames = new Set()) {
+  return encodeExpressionNode(node, context, boundNames, false);
+}
+
+function encodeExpressionNode(node, context, boundNames, closedVocab) {
   if (!node || typeof node !== "object") {
     fail(context, "expected a Quint AST node");
   }
@@ -384,7 +394,11 @@ export function encodeExpression(node, context = "expression", boundNames = new 
     return { kind: node.kind, value: node.value };
   }
   if (node.kind === "name") {
-    if (!allowedExpressionNameSet.has(node.name) && !boundNames.has(node.name)) {
+    if (
+      closedVocab &&
+      !allowedExpressionNameSet.has(node.name) &&
+      !boundNames.has(node.name)
+    ) {
       fail(context, `unsupported expression name ${node.name}`);
     }
     return { kind: "name", value: node.name };
@@ -395,18 +409,41 @@ export function encodeExpression(node, context = "expression", boundNames = new 
     return {
       kind: "lambda",
       parameters,
-      body: encodeExpression(node.expr, `${context}.body`, nestedBoundNames),
+      body: encodeExpressionNode(node.expr, `${context}.body`, nestedBoundNames, closedVocab),
+    };
+  }
+  if (node.kind === "let") {
+    const name = node.opdef?.name;
+    const nestedBoundNames = new Set(boundNames);
+    if (name) {
+      nestedBoundNames.add(name);
+    }
+    return {
+      kind: "let",
+      name,
+      value: encodeExpressionNode(
+        node.opdef.expr,
+        `${context}.let.value`,
+        boundNames,
+        closedVocab,
+      ),
+      body: encodeExpressionNode(node.expr, `${context}.let.body`, nestedBoundNames, closedVocab),
     };
   }
   if (node.kind === "app") {
-    if (!allowedExpressionOperatorSet.has(node.opcode)) {
+    if (closedVocab && !allowedExpressionOperatorSet.has(node.opcode)) {
       fail(context, `unsupported expression operator ${node.opcode}`);
     }
     return {
       kind: "call",
       operator: node.opcode,
-      arguments: node.args.map((argument, index) =>
-        encodeExpression(argument, `${context}.${node.opcode}[${index}]`, boundNames)
+      arguments: (node.args ?? []).map((argument, index) =>
+        encodeExpressionNode(
+          argument,
+          `${context}.${node.opcode}[${index}]`,
+          boundNames,
+          closedVocab,
+        )
       ),
     };
   }
@@ -436,6 +473,12 @@ function collectExpressionNames(node, names) {
   } else if (node.kind === "lambda") {
     collectExpressionNames(node.expr, names);
     node.params.forEach(parameter => names.delete(parameter.name));
+  } else if (node.kind === "let") {
+    collectExpressionNames(node.opdef?.expr, names);
+    collectExpressionNames(node.expr, names);
+    if (node.opdef?.name) {
+      names.delete(node.opdef.name);
+    }
   }
 }
 
@@ -520,6 +563,15 @@ export function observationDependencies(expression, boundNames = new Set()) {
       visit(node.body, new Set([...bindings, ...node.parameters]));
       return;
     }
+    if (node.kind === "let") {
+      visit(node.value, bindings);
+      const nested = new Set(bindings);
+      if (typeof node.name === "string") {
+        nested.add(node.name);
+      }
+      visit(node.body, nested);
+      return;
+    }
     if (node.kind === "call") {
       dependencies.add(`operator:${node.operator}`);
       const path = expressionPath(node);
@@ -588,14 +640,14 @@ function flattenActionAll(node) {
   if (node?.kind === "app" && node.opcode === "actionAll") {
     return (node.args ?? []).flatMap(flattenActionAll);
   }
+  if (node?.kind === "let") {
+    return flattenActionAll(node.expr);
+  }
   return node ? [node] : [];
 }
 
-function isStateAssignment(node) {
-  return node?.kind === "app" &&
-    node.opcode === "assign" &&
-    node.args?.[0]?.kind === "name" &&
-    node.args[0].name === "state";
+function isAssignment(node) {
+  return node?.kind === "app" && node.opcode === "assign";
 }
 
 const alwaysRetrieveable = new Set([
@@ -834,6 +886,9 @@ function encodedIsModelOnly(expression) {
   if (expression?.kind === "lambda") {
     return encodedIsModelOnly(expression.body);
   }
+  if (expression?.kind === "let") {
+    return encodedIsModelOnly(expression.value) || encodedIsModelOnly(expression.body);
+  }
   return false;
 }
 
@@ -847,9 +902,19 @@ export function classifyGuardAssertion(expression, retrieve) {
   return { scope: "model", expression };
 }
 
-function extractGuardAssertions(definition, argumentNodes, context, retrieve) {
-  if (!definition?.expr) {
-    return [];
+export function extractGuardAssertions(definition, argumentNodes, context, retrieve) {
+  return extractActionObligations(definition, argumentNodes, context, retrieve).guards;
+}
+
+/// Split a Quint `all { }` action into unprimed conjuncts (before) and
+/// `x' = e` assignments (after). `val`/`let` unwraps to its body; it is not
+/// itself a conjunct.
+export function extractActionObligations(definition, argumentNodes, context, retrieve) {
+  if (!definition) {
+    return { guards: [], next: [] };
+  }
+  if (!definition.expr) {
+    fail(context, "action definition has no body to encode as conjuncts");
   }
   let body = definition.expr;
   const mapping = new Map();
@@ -862,20 +927,22 @@ function extractGuardAssertions(definition, argumentNodes, context, retrieve) {
     body = body.expr;
   }
   const guards = [];
+  const next = [];
   for (const [index, conjunct] of flattenActionAll(body).entries()) {
-    if (!conjunct || conjunct.kind === "let" || isStateAssignment(conjunct)) {
+    if (!conjunct) {
       continue;
     }
     const substituted = substituteNames(conjunct, mapping);
-    let encoded;
-    try {
-      encoded = encodeExpression(substituted, `${context}.guard[${index}]`);
-    } catch {
-      continue;
+    const kind = isAssignment(conjunct) ? "next" : "guard";
+    const encoded = encodeGuardExpression(substituted, `${context}.${kind}[${index}]`);
+    const classified = classifyGuardAssertion(encoded, retrieve);
+    if (kind === "next") {
+      next.push(classified);
+    } else {
+      guards.push(classified);
     }
-    guards.push(classifyGuardAssertion(encoded, retrieve));
   }
-  return guards;
+  return { guards, next };
 }
 
 function encodeItfValue(value) {
@@ -1071,10 +1138,10 @@ function attachItfActionNext(steps, itf, context) {
         }
       }
     }
-    if (next.length === 0) {
-      fail(context, `action ${step.action} produced no runtime next from ITF`);
+    if (next.length === 0 && !(step.next ?? []).length) {
+      fail(context, `action ${step.action} produced no next from Quint assign or ITF`);
     }
-    step.next = next;
+    step.next = [...(step.next ?? []), ...next];
   }
 }
 
@@ -1114,7 +1181,7 @@ function encodeAction(node, context, fixtureNames, actionDefs, retrieve) {
       encodeExpression(argument, `${context}.${action}[${index}]`)
     ),
   };
-  const guards = extractGuardAssertions(
+  const { guards, next } = extractActionObligations(
     actionDefs?.get(action),
     args,
     `${context}.${action}`,
@@ -1122,6 +1189,9 @@ function encodeAction(node, context, fixtureNames, actionDefs, retrieve) {
   );
   if (guards.length > 0) {
     encoded.guards = guards;
+  }
+  if (next.length > 0) {
+    encoded.next = next;
   }
   return encoded;
 }

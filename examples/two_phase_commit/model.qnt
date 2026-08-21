@@ -12,6 +12,9 @@ module two_phase_commit {
     flushed: bool,
   }
 
+  /// Closed universe of status tags. Membership is a fixture, not live state.
+  pure val statuses = Set(Idle, Open, Prepared, Committed, Aborted)
+
   var state: Txn
 
   action init = all {
@@ -19,11 +22,13 @@ module two_phase_commit {
   }
 
   action begin = all {
+    statuses.contains(state.status),
     state.status == Idle,
     state' = { status: Open, wal: [], flushed: false },
   }
 
   action prepare = all {
+    statuses.contains(state.status),
     state.status == Open,
     state' = {
       status: Prepared,
@@ -33,12 +38,14 @@ module two_phase_commit {
   }
 
   action flushWal = all {
+    statuses.contains(state.status),
     state.status == Prepared,
     state.flushed == false,
     state' = { ...state, flushed: true },
   }
 
   action commitPrepared = all {
+    statuses.contains(state.status),
     state.status == Prepared,
     state.flushed,
     state' = {
