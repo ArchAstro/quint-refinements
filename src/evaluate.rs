@@ -868,7 +868,7 @@ fn evaluate_filter<E: NormalizedRuntimeEvidence>(
     };
     let mut filtered = Vec::new();
     for value in items {
-        match evaluate_lambda(lambda, &[value.clone()], eval, environment)? {
+        match evaluate_lambda(lambda, std::slice::from_ref(&value), eval, environment)? {
             RuntimeValue::Bool(true) => filtered.push(value),
             RuntimeValue::Bool(false) => {}
             _ => return Err("filter predicate did not evaluate to boolean".to_owned()),

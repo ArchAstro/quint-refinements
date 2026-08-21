@@ -424,8 +424,13 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
       node.name !== "Absent"
     ) {
       const definition = defs.get(node.name);
-      if (!definition || definition.qualifier === "val") {
+      if (
+        (!definition || definition.qualifier === "val") &&
+        /^[A-Z]/.test(node.name)
+      ) {
         // Unit constructors (`CertificateValid`, `ReplicaUp`) are string tags.
+        // Lowercase unresolved names are compatibility-mode local bindings;
+        // keeping them as names leaves their conjunct model-scoped.
         return { kind: "str", value: node.name };
       }
     }
