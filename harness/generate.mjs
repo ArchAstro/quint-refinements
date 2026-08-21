@@ -465,6 +465,33 @@ function expressionIsModelOnly(node) {
   return false;
 }
 
+function collectUniverseFixtureNames(node, names, bound = new Set()) {
+  if (!node || typeof node !== "object") {
+    return;
+  }
+  if (node.kind === "app" && node.opcode === "contains" && node.args?.[0]?.kind === "name") {
+    if (!bound.has(node.args[0].name)) {
+      names.add(node.args[0].name);
+    }
+  }
+  if (node.kind === "app") {
+    (node.args ?? []).forEach(argument =>
+      collectUniverseFixtureNames(argument, names, bound)
+    );
+  } else if (node.kind === "lambda") {
+    const nested = new Set(bound);
+    (node.params ?? []).forEach(parameter => nested.add(parameter.name));
+    collectUniverseFixtureNames(node.expr, names, nested);
+  } else if (node.kind === "let") {
+    const nested = new Set(bound);
+    if (node.opdef?.name) {
+      nested.add(node.opdef.name);
+    }
+    collectUniverseFixtureNames(node.opdef?.expr, names, bound);
+    collectUniverseFixtureNames(node.expr, names, nested);
+  }
+}
+
 function collectExpressionNames(node, names) {
   if (node.kind === "name") {
     names.add(node.name);
@@ -909,7 +936,13 @@ export function extractGuardAssertions(definition, argumentNodes, context, retri
 /// Split a Quint `all { }` action into unprimed conjuncts (before) and
 /// `x' = e` assignments (after). `val`/`let` unwraps to its body; it is not
 /// itself a conjunct.
-export function extractActionObligations(definition, argumentNodes, context, retrieve) {
+export function extractActionObligations(
+  definition,
+  argumentNodes,
+  context,
+  retrieve,
+  fixtureNames,
+) {
   if (!definition) {
     return { guards: [], next: [] };
   }
@@ -925,6 +958,9 @@ export function extractActionObligations(definition, argumentNodes, context, ret
       }
     });
     body = body.expr;
+  }
+  if (fixtureNames) {
+    collectUniverseFixtureNames(substituteNames(body, mapping), fixtureNames);
   }
   const guards = [];
   const next = [];
@@ -1186,6 +1222,7 @@ function encodeAction(node, context, fixtureNames, actionDefs, retrieve) {
     args,
     `${context}.${action}`,
     retrieve,
+    fixtureNames,
   );
   if (guards.length > 0) {
     encoded.guards = guards;

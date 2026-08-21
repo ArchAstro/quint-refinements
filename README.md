@@ -66,7 +66,9 @@ fixtures.validate(&artifact)?;
 - **Observe `*Inv` theorems** — still Quint-only; those are not action guards.
 
 `evaluate_every_action_step` still skips `scope: model` for unmigrated
-gateway runners. `refine_scenario` does not.
+gateway runners. `refine_scenario` does not. `evaluate_owned_conjuncts`
+evaluates fixture-backed conjuncts whose operators the crate implements
+(`contains`, `eq`, `field`, …); nested Quint helpers stay until inlined.
 
 ## Plug-in surface (what an app provides)
 

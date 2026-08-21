@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde_json::Value;
+
 use crate::artifact::{ArtifactAssertion, ArtifactScenario, ArtifactStep, AssertionScope};
 
 /// A normalized Q12 value reconstructed from runtime-owned evidence.
@@ -249,6 +251,58 @@ fn evaluate_step_obligations_inner(
     Ok(evaluated)
 }
 
+pub(crate) fn operators_are_supported(expression: &serde_json::Value) -> bool {
+    expression_operators(expression)
+        .into_iter()
+        .all(|operator| {
+            matches!(
+                operator.as_str(),
+                "eq" | "neq"
+                    | "not"
+                    | "actionAll"
+                    | "Present"
+                    | "Set"
+                    | "Rec"
+                    | "field"
+                    | "get"
+                    | "contains"
+                    | "length"
+                    | "size"
+                    | "assign"
+                    | "matchVariant"
+                    | "filter"
+            )
+        })
+}
+
+fn expression_operators(expression: &serde_json::Value) -> Vec<String> {
+    match expression["kind"].as_str() {
+        Some("call") => {
+            let mut operators = vec![
+                expression["operator"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+            ];
+            if let Some(arguments) = expression.get("arguments").and_then(Value::as_array) {
+                operators.extend(arguments.iter().flat_map(expression_operators));
+            }
+            operators
+        }
+        Some("lambda") => expression
+            .get("body")
+            .map(expression_operators)
+            .unwrap_or_default(),
+        Some("let") => expression
+            .get("value")
+            .into_iter()
+            .chain(expression.get("body"))
+            .flat_map(expression_operators)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn is_assign(expression: &serde_json::Value) -> bool {
     expression["kind"].as_str() == Some("call") && expression["operator"].as_str() == Some("assign")
 }
@@ -283,7 +337,9 @@ fn evaluate_assigns(
             .as_array()
             .ok_or_else(|| format!("{context} assign has no arguments"))?;
         let [left, right] = arguments.as_slice() else {
-            return Err(format!("{context} assign requires a variable and an expression"));
+            return Err(format!(
+                "{context} assign requires a variable and an expression"
+            ));
         };
         // Quint: RHS of x' = e is evaluated in the current state; LHS is the next state.
         let expected = evaluate_expression(right, before, &BTreeMap::new())?;
@@ -354,6 +410,7 @@ fn dependency_is_supported(dependency: &str, supported: &BTreeSet<&str>) -> bool
             | "operator:actionAll"
             | "operator:contains"
             | "operator:field"
+            | "operator:get"
             | "operator:assign"
     ) || supported.contains(dependency)
 }
