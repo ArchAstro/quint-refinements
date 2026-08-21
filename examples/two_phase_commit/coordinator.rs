@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use quint_refinements::{
-    ConformanceArtifact, FixtureTable, NormalizedRuntimeEvidence, OwnershipTable, PrimitiveDriver,
-    QuintFixture, RuntimeValue, collect_ownership_records, quint_ownership, refine_scenario,
+    AsyncPrimitiveDriver, ConformanceArtifact, FixtureTable, NormalizedRuntimeEvidence,
+    OwnershipTable, PrimitiveDriver, QuintFixture, RuntimeValue, collect_ownership_records,
+    quint_ownership, refine_scenario, refine_scenario_async,
 };
 
 quint_ownership! {
@@ -19,7 +20,7 @@ quint_ownership! {
     pub const COMMIT_OWNERSHIP = {
         primitive: "postgres.txn.commit",
         refines: ["prepare", "flushWal", "commitPrepared"],
-        observations: ["path:state.status", "path:state.flushed", "path:state.wal_len"],
+        observations: ["path:state.status", "path:state.flushed", "path:state.wal"],
     };
 }
 
@@ -30,12 +31,16 @@ pub const OWNERSHIP: OwnershipTable = OwnershipTable {
 
 const RETRIEVE: &[&str] = &[
     "name:state",
+    "operator:append",
+    "operator:assign",
     "operator:contains",
     "operator:eq",
     "operator:field",
+    "operator:or",
+    "operator:with",
     "path:state.flushed",
     "path:state.status",
-    "path:state.wal_len",
+    "path:state.wal",
 ];
 
 const TRACES: &str = include_str!("traces.json");
@@ -63,7 +68,10 @@ impl Status {
 
 impl QuintFixture for Status {
     fn artifact_json(&self) -> serde_json::Value {
-        serde_json::Value::String(self.as_str().to_owned())
+        serde_json::json!({
+            "tag": self.as_str(),
+            "value": { "#tup": [] },
+        })
     }
 
     fn runtime_value(&self) -> RuntimeValue {
@@ -73,22 +81,16 @@ impl QuintFixture for Status {
 
 /// Quint `Idle`/`statuses` are this enum, not a parallel test twin.
 pub fn fixture_table() -> FixtureTable {
-    FixtureTable::new("two_phase_commit")
-        .insert("Aborted", &Status::Aborted)
-        .insert("Committed", &Status::Committed)
-        .insert("Idle", &Status::Idle)
-        .insert("Open", &Status::Open)
-        .insert("Prepared", &Status::Prepared)
-        .insert_set(
-            "statuses",
-            &[
-                Status::Aborted,
-                Status::Committed,
-                Status::Idle,
-                Status::Open,
-                Status::Prepared,
-            ],
-        )
+    FixtureTable::new("two_phase_commit").insert_set(
+        "statuses",
+        &[
+            Status::Aborted,
+            Status::Committed,
+            Status::Idle,
+            Status::Open,
+            Status::Prepared,
+        ],
+    )
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -108,8 +110,8 @@ impl NormalizedRuntimeEvidence for Snapshot {
                 ),
                 ("flushed".to_owned(), RuntimeValue::Bool(self.flushed)),
                 (
-                    "wal_len".to_owned(),
-                    RuntimeValue::Int(self.wal.len() as i64),
+                    "wal".to_owned(),
+                    RuntimeValue::List(self.wal.iter().cloned().map(RuntimeValue::Text).collect()),
                 ),
             ]))),
             _ => Err(format!("unknown name {name}")),
@@ -226,6 +228,18 @@ impl PrimitiveDriver for Coordinator {
     }
 }
 
+impl AsyncPrimitiveDriver for Coordinator {
+    type Evidence = Snapshot;
+
+    async fn run_primitive(
+        &mut self,
+        primitive: &str,
+        owned_actions: &[String],
+    ) -> Result<Vec<Self::Evidence>, String> {
+        PrimitiveDriver::run_primitive(self, primitive, owned_actions)
+    }
+}
+
 /// Runs `commitRun` through the refinement loop.
 pub fn refine_commit_run() -> Result<usize, String> {
     let artifact = ConformanceArtifact::parse(TRACES).map_err(|error| error.to_string())?;
@@ -247,4 +261,30 @@ pub fn refine_commit_run() -> Result<usize, String> {
         &fixtures,
         &mut driver,
     )
+}
+
+/// Runs generated `commitRun` through the runtime-neutral async driver API.
+#[allow(dead_code)]
+pub async fn refine_commit_run_async() -> Result<usize, String> {
+    let artifact = ConformanceArtifact::parse(TRACES).map_err(|error| error.to_string())?;
+    let scenario = artifact
+        .scenarios
+        .iter()
+        .find(|scenario| scenario.name == "commitRun")
+        .ok_or_else(|| "commitRun missing".to_owned())?;
+    let ownership = collect_ownership_records(&[OWNERSHIP]).map_err(|error| error.to_string())?;
+    let fixtures = fixture_table();
+    fixtures
+        .validate(&artifact)
+        .map_err(|error| error.to_string())?;
+    let mut driver = Coordinator::new();
+    refine_scenario_async(
+        scenario,
+        driver.snapshot(),
+        &ownership,
+        RETRIEVE,
+        &fixtures,
+        &mut driver,
+    )
+    .await
 }

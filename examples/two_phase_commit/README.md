@@ -18,19 +18,21 @@ quint_ownership! {
     pub const COMMIT_OWNERSHIP = {
         primitive: "postgres.txn.commit",
         refines: ["prepare", "flushWal", "commitPrepared"],
-        observations: ["path:state.status", "path:state.flushed", "path:state.wal_len"],
+        observations: ["path:state.status", "path:state.flushed", "path:state.wal"],
     };
 }
 ```
 
-`Status` is the Quint fixture: `Idle`/`Open`/… and the `statuses` set are the
-same enum, not a parallel test twin. `state.status` is the snapshot.
-`traces.json` must list those fixtures; `FixtureTable::validate` compares JSON.
+`Status` owns the generated Quint `statuses` universe; unit constructors remain
+structural Quint tags. `state.status`, `state.wal`, and `state.flushed` come
+from the real coordinator snapshot.
 
-`traces.json` is the checked artifact for `commitRun`. `model.qnt` typechecks
-with Quint (`quint typecheck model.qnt`).
+`traces.json` is generated from `model.qnt` through this app's explicit source,
+initializer, step, vocabulary, retrieve, and fixture configuration.
 
 ```
+node generate-traces.mjs --check
 cargo test --test two_phase_commit
+cargo test --test generated_two_phase_commit
 cargo run --example two_phase_commit
 ```

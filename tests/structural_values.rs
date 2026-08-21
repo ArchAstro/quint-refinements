@@ -27,6 +27,18 @@ impl QuintFixture for PoolKey {
     }
 }
 
+struct PartialRecordFixture;
+
+impl QuintFixture for PartialRecordFixture {
+    fn artifact_json(&self) -> Value {
+        json!({ "kept": 1 })
+    }
+
+    fn runtime_value(&self) -> RuntimeValue {
+        RuntimeValue::Record(BTreeMap::from([("kept".to_owned(), RuntimeValue::Int(1))]))
+    }
+}
+
 struct Evidence(RuntimeValue);
 
 impl NormalizedRuntimeEvidence for Evidence {
@@ -325,4 +337,36 @@ fn exact_assignment_rejects_an_unexpected_model_state_field() {
     .expect_err("unexpected model field must fail");
 
     assert!(error.contains("invented"), "{error}");
+}
+
+#[test]
+fn full_fixture_validation_rejects_an_omitted_record_field() {
+    let artifact = ConformanceArtifact::parse(
+        r#"{
+          "schemaVersion": 2,
+          "modelDigest": "sha256:fixture-test",
+          "vocabulary": {
+            "actions": [],
+            "capabilities": [],
+            "expressionOperators": [],
+            "expressionNames": [],
+            "runtimeObservationDependencies": [],
+            "runtimeObservationDependencyDigest": "sha256:test"
+          },
+          "fixtures": { "model": { "record": { "kept": 1, "omitted": 2 } } },
+          "scenarios": []
+        }"#,
+    )
+    .expect("parse fixture artifact");
+
+    let error = FixtureTable::new("model")
+        .insert("record", &PartialRecordFixture)
+        .validate(&artifact)
+        .expect_err("full fixture validation cannot accept a record subset");
+
+    assert!(
+        error.message().contains("JSON diverged"),
+        "{}",
+        error.message()
+    );
 }

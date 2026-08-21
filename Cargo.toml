@@ -9,6 +9,9 @@ description = "Declarative Quint-to-implementation refinement: ownership records
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+[dev-dependencies]
+futures = "0.3"
+
 [lints.rust]
 unsafe_code = "forbid"
 

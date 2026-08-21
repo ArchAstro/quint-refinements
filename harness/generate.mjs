@@ -1,6 +1,6 @@
-// Quint-app → JSON artifact engine. Vocab and retrieve maps below are the
-// first plugged-in app (Arch Gateway). A second Quint app should pass those
-// as generateConformanceTraces options rather than forking this file.
+// Runtime-neutral Quint-app → JSON artifact engine. Product vocabulary,
+// source layout, retrieve policy, fixture imports, and ITF augmentation arrive
+// through defineConformanceApp rather than living in this module.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,347 +16,50 @@ const supportedNormalizedExpressionOperatorSet = new Set(
 
 export const schemaVersion = 2;
 
-// The generated artifact contains the readable, sorted 242-entry vocabulary.
-// This separately reviewed digest prevents regeneration from silently blessing
-// a misspelled state path, helper, name, or operator as a new dependency.
-export const allowedRuntimeObservationDependencyDigest =
-  "sha256:44eb554db5b790ed8b6bdb2494d9ec4f5a0ccca9be558e44d6b55e1e65493715";
+export let defaultAppConfig;
 
-export const allowedCapabilities = [
-  "delivery.at_least_once",
-  "ha.presence",
-  "identity.enrollment",
-  "identity.lifecycle",
-  "lifecycle.failure",
-  "liveness.assumptions",
-  "model.structure",
-  "platform.coordinator",
-  "proof.safety",
-  "resource.bounds",
-  "routing.redundancy",
-  "transport.basic",
-];
+export function setDefaultConformanceApp(app) {
+  defaultAppConfig = app;
+}
 
-export const allowedActions = [
-  "advanceModel",
-  "applyAckSendEffects",
-  "advertisePresence",
-  "ageConnections",
-  "ageEnrollmentTokens",
-  "ageIdentity",
-  "agePresence",
-  "applyDeliveredCancellation",
-  "attemptCertificateConnection",
-  "beginConnectionDrain",
-  "beginReplicaDrain",
-  "cancelAttempt",
-  "cancelDelivery",
-  "closeConnection",
-  "closeDrainedConnection",
-  "completeExecution",
-  "connectorAcceptDelivery",
-  "crashReplica",
-  "createEnrollmentToken",
-  "deliverDirectoryMessageAt",
-  "deliverPlatformCancellationAt",
-  "deliverPlatformInvocationAt",
-  "deliverPlatformResultAt",
-  "deliverPlatformUnavailableAt",
-  "disconnectDeliveryConnection",
-  "dropDirectoryMessageAt",
-  "dropPlatformMessageAt",
-  "emitConnectorResult",
-  "enqueueDirectoryRefresh",
-  "enqueueDirectoryRemoval",
-  "enqueuePlatformCancellation",
-  "enqueuePlatformInvocation",
-  "enqueuePlatformResult",
-  "enqueuePlatformUnavailable",
-  "enqueueSelectedDelivery",
-  "evictCompletedDedup",
-  "expireAttempt",
-  "finishReplicaDrain",
-  "forceCloseExpiredDrain",
-  "healConnectorGateway",
-  "healGatewayDirectory",
-  "healPlatformGateway",
-  "heartbeatConnection",
-  "ignoreStaleDeliveredCancellation",
-  "installServiceCredential",
-  "issueEnrollmentCertificate",
-  "loseDelivery",
-  "loseDeliveryAck",
-  "loseEnrollmentResponse",
-  "loseInvocationCoordinator",
-  "losePendingResult",
-  "observePresence",
-  "openConnection",
-  "openConnectionForRuntimeOwner",
-  "partitionConnectorGateway",
-  "partitionGatewayDirectory",
-  "partitionPlatformGateway",
-  "processDeliveryAck",
-  "receiveConnectorResult",
-  "receiveHello",
-  "receiveLateConnectorResult",
-  "recoverEnrollmentCertificate",
-  "rejectUnboundConnectorResult",
-  "refreshPresence",
-  "rejectDuplicateDelivery",
-  "rejectRevokedRenewal",
-  "removePresence",
-  "renewCertificate",
-  "reportRoutedUnavailable",
-  "reportUnavailable",
-  "reserveEnrollmentToken",
-  "restartReplica",
-  "revokeServiceIdentity",
-  "routeObservedAttempt",
-  "selectConnection",
-  "selectForAttempt",
-  "selectForRoutedAttempt",
-  "stutterModel",
-  "terminateRuntimeOwner",
-  "submitInvocation",
-  "timeoutConnection",
-];
-
-// This is the complete expression language accepted in action arguments and
-// observations. Extending it requires an explicit review of the future Rust
-// adapter rather than silently serializing arbitrary Quint AST nodes.
-export const allowedExpressionOperators = [
-  "InvocationFailed",
-  "InvocationSucceeded",
-  "Present",
-  "Rec",
-  "Set",
-  "actionAll",
-  "activePresenceFor",
-  "attemptValue",
-  "connectionIdAvailable",
-  "connectionValue",
-  "contains",
-  "dedupEntry",
-  "dedupKey",
-  "dedupValue",
-  "deliveryIdsForAttempt",
-  "deliveryValue",
-  "eligibleConnection",
-  "eq",
-  "exists",
-  "field",
-  "filter",
-  "forall",
-  "get",
-  "hasEligibleConnectionOnReplica",
-  "iadd",
-  "igt",
-  "ilte",
-  "length",
-  "matchVariant",
-  "neq",
-  "nextEligible",
-  "nextEligibleAfter",
-  "not",
-  "observationValue",
-  "poolConnectionCount",
-  "presenceRevisionAvailable",
-  "presenceValue",
-  "replicaPoolKey",
-  "resultFor",
-  "size",
-  "tokenValue",
-];
-
-export const allowedExpressionNames = [
-  "Absent",
-  "AgeExpired",
-  "CertificateConnectionAccepted",
-  "CertificateConnectionRejected",
-  "CertificateExpired",
-  "ConnectionClosed",
-  "ConnectionEligible",
-  "ConnectionTimedOut",
-  "ServiceCertificateIssued",
-  "ServiceEnrolled",
-  "ServiceNotEnrolled",
-  "ConnectorExecutionStarted",
-  "ConnectorDeliveryAccepted",
-  "DeliveryAckLost",
-  "ConnectorResultRejected",
-  "ServicePendingEnrollment",
-  "ServiceRevoked",
-  "DedupCompleted",
-  "DedupInFlight",
-  "DeliveryCancelled",
-  "DeliveryCommitted",
-  "DeliveryCommittedOutcome",
-  "DeliveryLost",
-  "DeliveryUnavailableOutcome",
-  "DuplicateResultIgnored",
-  "CsrDigestA",
-  "CsrDigestB",
-  "EnrollmentCertificateIssued",
-  "EnrollmentConflictRejected",
-  "EnrollmentExpiredRejected",
-  "EnrollmentIdentityRejected",
-  "EnrollmentRecovered",
-  "EnrollmentReservationJoined",
-  "EnrollmentResponseLost",
-  "EnrollmentTokenReserved",
-  "ExecutionCancelled",
-  "ExecutionRunning",
-  "FunctionRejected",
-  "HelloAccepted",
-  "HelloRejectedDuplicate",
-  "HelloRejectedFunctions",
-  "HelloRejectedIdentity",
-  "IdempotencyConflict",
-  "InvocationAccepted",
-  "InvocationAmbiguous",
-  "InvocationAmbiguousOutcome",
-  "invocationCorrelationInv",
-  "InvocationCancelled",
-  "InvocationDelivering",
-  "InvocationExpired",
-  "InvocationRejected",
-  "InvocationRejectedInvalid",
-  "InvocationRouting",
-  "InvocationSettled",
-  "InvocationSettledOutcome",
-  "LinkPartitioned",
-  "LinkReachable",
-  "PlatformMessageDropped",
-  "PresenceActive",
-  "PresenceCleanupSkipped",
-  "PresenceExpired",
-  "PresenceRemoved",
-  "PresenceRouteUnavailable",
-  "ReplicaDown",
-  "ResultA",
-  "StaleCancellationIgnored",
-  "TokenAvailable",
-  "TokenConsumed",
-  "TokenExpired",
-  "TokenReserved",
-  "attemptA",
-  "attemptB",
-  "callerRetryAttempt",
-  "certificateA1",
-  "certificateA2",
-  "certificateA3",
-  "certificateB1",
-  "certificateValues",
-  "connectionA1",
-  "connectionSpecificCleanupInv",
-  "connectionAKey",
-  "connectionBKey",
-  "failureConnectionAKey",
-  "failureConnectionBKey",
-  "serviceEnrollmentA",
-  "serviceEnrollmentAAlt",
-  "serviceEnrollmentAReplacement",
-  "serviceEnrollmentB",
-  "controlDerivedCertificateBindingInv",
-  "crossFunctionAttempt",
-  "csrA",
-  "csrAReplacement",
-  "csrSubstitution",
-  "dedupCompletedA",
-  "dedupConflictA",
-  "dedupInFlightA",
-  "deliveryA1",
-  "deliveryA2",
-  "deliveryAttemptIds",
-  "deliverySafetyInv",
-  "eligibleSelectionInv",
-  "equallyExpiringAttempt",
-  "executionValues",
-  "expiringAttempt",
-  "failureSafetyInv",
-  "gatewayA",
-  "gatewayB",
-  "helloA1",
-  "helloA2",
-  "helloA3",
-  "helloB1",
-  "identitySafetyInv",
-  "initialTopology",
-  "invalidFunctionAttempt",
-  "maxCertificates",
-  "maxClockSkew",
-  "maxConnections",
-  "maxServiceEnrollments",
-  "maxDeliveryAttempts",
-  "maxInvocationAttempts",
-  "maxOrganizations",
-  "maxPresenceRecords",
-  "maxReplicas",
-  "maxServiceSpecs",
-  "maxTimestamp",
-  "mismatchedHello",
-  "overloadAttempt",
-  "poolA",
-  "poolAAlt",
-  "poolB",
-  "poolSafetyInv",
-  "presenceA",
-  "presenceCleanupInv",
-  "presenceRecords",
-  "presenceSafetyInv",
-  "renewedCertificateA1",
-  "routeObservationBindingInv",
-  "safetyInv",
-  "serviceA",
-  "serviceAAlt",
-  "serviceB",
-  "state",
-  "sameTenantAlternateServiceAttempt",
-  "terminalCleanupInv",
-  "tokenRecords",
-  "tunnelAttemptA",
-  "unknownFunctionHello",
-  "wrongConnectionTunnelResult",
-  "wrongServiceHelloA3",
-];
-
-const allowedActionSet = new Set(allowedActions);
-const allowedCapabilitySet = new Set(allowedCapabilities);
-const allowedExpressionOperatorSet = new Set(allowedExpressionOperators);
-const allowedExpressionNameSet = new Set(allowedExpressionNames);
-const modelOnlyAssertionNames = new Set([
-  ...allowedExpressionNames.filter(name => name.endsWith("Inv")),
-  "deliveryAttemptIds",
-  "executionValues",
-  "initialTopology",
-  "maxCertificates",
-  "maxClockSkew",
-  "maxConnections",
-  "maxServiceEnrollments",
-  "maxDeliveryAttempts",
-  "maxInvocationAttempts",
-  "maxOrganizations",
-  "maxPresenceRecords",
-  "maxReplicas",
-  "maxServiceSpecs",
-  "maxTimestamp",
-  "presenceRecords",
-  "tokenRecords",
-]);
-const modelOnlyAssertionOperators = new Set([
-  "connectionIdAvailable",
-  "eligibleConnection",
-  "hasEligibleConnectionOnReplica",
-  "nextEligible",
-  "nextEligibleAfter",
-  "presenceRevisionAvailable",
-]);
+export function defineConformanceApp(config) {
+  const capabilities = [...config.capabilities];
+  const actions = [...config.actions];
+  const expressionOperators = [...(config.expressionOperators ?? [])];
+  const expressionNames = [...(config.expressionNames ?? [])];
+  return Object.freeze({
+    ...config,
+    capabilities,
+    actions,
+    expressionOperators,
+    expressionNames,
+    capabilitySet: new Set(capabilities),
+    actionSet: new Set(actions),
+    expressionOperatorSet: new Set(expressionOperators),
+    expressionNameSet: new Set(expressionNames),
+    modelOnlyNameSet: new Set(config.modelOnlyNames ?? []),
+    modelOnlyOperatorSet: new Set(config.modelOnlyOperators ?? []),
+    initializers: new Set(config.initializers),
+    fixtureImports: [...(config.fixtureImports ?? [])],
+    requireObserve: config.requireObserve ?? true,
+    copySourceForFixtures: config.copySourceForFixtures ??
+      (({ sourceText }) => sourceText),
+    retrieveForCapabilities: config.retrieveForCapabilities ?? (() => new Set()),
+    actionRetrieveForCapabilities: config.actionRetrieveForCapabilities ??
+      config.retrieveForCapabilities ?? (() => new Set()),
+    attachActionNext: config.attachActionNext ?? createItfActionNextHook(),
+  });
+}
 
 function fail(context, message) {
   throw new Error(`${context}: ${message}`);
 }
 
-export function parseConformanceCapabilities(doc, context = "declaration") {
+export function parseConformanceCapabilities(
+  doc,
+  context = "declaration",
+  app = defaultAppConfig,
+) {
   const directives = (doc ?? "")
     .split("\n")
     .map(line => line.trim())
@@ -375,15 +78,20 @@ export function parseConformanceCapabilities(doc, context = "declaration") {
     fail(context, "duplicate capability in @conformance directive");
   }
   for (const capability of capabilities) {
-    if (!allowedCapabilitySet.has(capability)) {
+    if (!app.capabilitySet.has(capability)) {
       fail(context, `unknown conformance capability ${capability}`);
     }
   }
   return capabilities.sort();
 }
 
-export function encodeExpression(node, context = "expression", boundNames = new Set()) {
-  return encodeExpressionNode(node, context, boundNames, true, new Map());
+export function encodeExpression(
+  node,
+  context = "expression",
+  boundNames = new Set(),
+  app = defaultAppConfig,
+) {
+  return encodeExpressionNode(node, context, boundNames, true, new Map(), app);
 }
 
 /// Guard conjuncts use the full Quint expression AST. Observe chapters keep
@@ -393,11 +101,12 @@ export function encodeGuardExpression(
   context = "expression",
   boundNames = new Set(),
   defs = new Map(),
+  app = defaultAppConfig,
 ) {
-  return encodeExpressionNode(node, context, boundNames, false, defs);
+  return encodeExpressionNode(node, context, boundNames, false, defs, app);
 }
 
-function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
+function encodeExpressionNode(node, context, boundNames, closedVocab, defs, app) {
   if (!node || typeof node !== "object") {
     fail(context, "expected a Quint AST node");
   }
@@ -408,7 +117,7 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
   if (node.kind === "name") {
     if (
       closedVocab &&
-      !allowedExpressionNameSet.has(node.name) &&
+      !app.expressionNameSet.has(node.name) &&
       !boundNames.has(node.name)
     ) {
       fail(context, `unsupported expression name ${node.name}`);
@@ -418,12 +127,12 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
     }
     if (
       !closedVocab &&
-      defs.size > 0 &&
+      (defs.size > 0 || typeof defs.resolve === "function") &&
       !boundNames.has(node.name) &&
       node.name !== "state" &&
       node.name !== "Absent"
     ) {
-      const definition = defs.get(node.name);
+      const definition = resolveDefinition(defs, node);
       if (
         (!definition || definition.qualifier === "val") &&
         /^[A-Z]/.test(node.name)
@@ -448,6 +157,7 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
         nestedBoundNames,
         closedVocab,
         defs,
+        app,
       ),
     };
   }
@@ -466,6 +176,7 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
         boundNames,
         closedVocab,
         defs,
+        app,
       ),
       body: encodeExpressionNode(
         node.expr,
@@ -473,11 +184,12 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
         nestedBoundNames,
         closedVocab,
         defs,
+        app,
       ),
     };
   }
   if (node.kind === "app") {
-    if (closedVocab && !allowedExpressionOperatorSet.has(node.opcode)) {
+    if (closedVocab && !app.expressionOperatorSet.has(node.opcode)) {
       fail(context, `unsupported expression operator ${node.opcode}`);
     }
     return {
@@ -490,6 +202,7 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
           boundNames,
           closedVocab,
           defs,
+          app,
         )
       ),
     };
@@ -498,16 +211,16 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
   fail(context, `unsupported expression kind ${node.kind}`);
 }
 
-function expressionIsModelOnly(node) {
+function expressionIsModelOnly(node, app = defaultAppConfig) {
   if (node.kind === "name") {
-    return modelOnlyAssertionNames.has(node.name);
+    return app.modelOnlyNameSet.has(node.name);
   }
   if (node.kind === "app") {
-    return modelOnlyAssertionOperators.has(node.opcode) ||
-      node.args.some(expressionIsModelOnly);
+    return app.modelOnlyOperatorSet.has(node.opcode) ||
+      node.args.some(argument => expressionIsModelOnly(argument, app));
   }
   if (node.kind === "lambda") {
-    return expressionIsModelOnly(node.expr);
+    return expressionIsModelOnly(node.expr, app);
   }
   return false;
 }
@@ -527,7 +240,7 @@ function collectNamedFixtures(node, names, defs, bound = new Set()) {
   }
   if (node.kind === "name") {
     if (!bound.has(node.name) && node.name !== "state" && node.name !== "Absent") {
-      const definition = defs.get(node.name);
+      const definition = resolveDefinition(defs, node);
       const qualifier = definition?.qualifier;
       if (
         qualifier === "pureval" ||
@@ -619,16 +332,18 @@ function isStateSelfAssignment(node) {
     node.args[1].name === "state";
 }
 
-function encodeObservation(node, context) {
+function encodeObservation(node, context, app) {
   const assertions = [];
   let stateAssignmentCount = 0;
 
   for (const member of node.args) {
     if (member.kind === "app" && member.opcode === "assert" && member.args.length === 1) {
-      const scope = expressionIsModelOnly(member.args[0]) ? "model" : "runtime";
+      const scope = expressionIsModelOnly(member.args[0], app) ? "model" : "runtime";
       const expression = encodeExpression(
         member.args[0],
         `${context}.assert[${assertions.length}]`,
+        new Set(),
+        app,
       );
       assertions.push({
         scope,
@@ -709,16 +424,17 @@ export function observationDependencies(expression, boundNames = new Set()) {
 export function validateRuntimeObservationDependencies(
   dependencies,
   context = "runtime observation dependency vocabulary",
+  expectedDigest = defaultAppConfig?.runtimeObservationDependencyDigest,
 ) {
   const sorted = [...dependencies].sort();
   if (new Set(sorted).size !== sorted.length) {
     fail(context, "contains duplicate dependencies");
   }
   const digest = `sha256:${crypto.createHash("sha256").update(sorted.join("\0")).digest("hex")}`;
-  if (digest !== allowedRuntimeObservationDependencyDigest) {
+  if (expectedDigest && digest !== expectedDigest) {
     fail(
       context,
-      `changed from reviewed digest ${allowedRuntimeObservationDependencyDigest} to ${digest}`,
+      `changed from reviewed digest ${expectedDigest} to ${digest}`,
     );
   }
   return digest;
@@ -938,251 +654,27 @@ function isAssignment(node) {
   return node?.kind === "app" && node.opcode === "assign";
 }
 
-const alwaysRetrieveable = new Set([
-  "operator:eq",
-  "operator:neq",
-  "operator:not",
-  "operator:actionAll",
-]);
-
-// Keep in sync with IDENTITY_OBSERVATIONS / TRANSPORT_OBSERVATIONS /
-// PLATFORM_COORDINATOR_OBSERVATIONS in services/rust/arch-gateway/src/lib.rs.
-const identityRetrieve = [
-  "name:AgeExpired",
-  "name:ConnectionClosed",
-  "name:CsrDigestA",
-  "name:EnrollmentConflictRejected",
-  "name:EnrollmentExpiredRejected",
-  "name:EnrollmentIdentityRejected",
-  "name:EnrollmentRecovered",
-  "name:EnrollmentReservationJoined",
-  "name:HelloRejectedIdentity",
-  "name:ServiceCertificateIssued",
-  "name:ServiceEnrolled",
-  "name:ServiceNotEnrolled",
-  "name:ServicePendingEnrollment",
-  "name:TokenConsumed",
-  "name:TokenExpired",
-  "name:TokenReserved",
-  "name:certificateA1",
-  "name:certificateValues",
-  "name:csrSubstitution",
-  "name:poolB",
-  "name:serviceEnrollmentA",
-  "name:serviceEnrollmentAAlt",
-  "name:serviceEnrollmentAReplacement",
-  "name:serviceEnrollmentB",
-  "operator:actionAll",
-  "operator:filter",
-  "operator:tokenValue",
-  "path:certificate.service_id",
-  "path:certificateA1.id",
-  "path:connection.lifecycle",
-  "path:connectionValue.pool_key",
-  "path:connectionValue.service_id",
-  "path:csrSubstitution.requested_binding",
-  "path:csrSubstitution.requests_extra_san",
-  "path:get.binding",
-  "path:get.lifecycle",
-  "path:serviceEnrollmentA.binding",
-  "path:serviceEnrollmentA.binding.service_id",
-  "path:serviceEnrollmentAAlt.binding",
-  "path:serviceEnrollmentAAlt.binding.service_id",
-  "path:serviceEnrollmentAReplacement.binding",
-  "path:serviceEnrollmentAReplacement.binding.service_id",
-  "path:serviceEnrollmentB.binding",
-  "path:serviceEnrollmentB.binding.service_id",
-  "path:state.certificates",
-  "path:state.enrollment_tokens",
-  "path:state.last_identity_outcome",
-  "path:state.last_pool_outcome",
-  "path:state.pending_enrollment_responses",
-  "path:state.service_enrollments",
-  "path:tokenValue.age",
-  "path:tokenValue.csr_digest",
-  "path:tokenValue.issued_certificate_id",
-  "path:tokenValue.lifecycle",
-];
-
-const transportRetrieve = [
-  "name:Absent",
-  "name:CertificateConnectionAccepted",
-  "name:CertificateConnectionRejected",
-  "name:ConnectorExecutionStarted",
-  "name:ConnectorResultRejected",
-  "name:DedupCompleted",
-  "name:DeliveryCommitted",
-  "name:DeliveryLost",
-  "name:FunctionRejected",
-  "name:IdempotencyConflict",
-  "name:InvocationSettled",
-  "name:InvocationSettledOutcome",
-  "name:ResultA",
-  "name:attemptA",
-  "name:connectionAKey",
-  "name:connectionBKey",
-  "name:failureConnectionAKey",
-  "name:failureConnectionBKey",
-  "name:crossFunctionAttempt",
-  "name:gatewayA",
-  "name:poolA",
-  "name:poolAAlt",
-  "name:state",
-  "operator:InvocationFailed",
-  "operator:InvocationSucceeded",
-  "operator:Present",
-  "operator:Rec",
-  "operator:Set",
-  "operator:attemptValue",
-  "operator:contains",
-  "operator:connectionValue",
-  "operator:deliveryValue",
-  "operator:dedupEntry",
-  "operator:dedupValue",
-  "operator:eq",
-  "operator:field",
-  "operator:get",
-  "operator:length",
-  "operator:matchVariant",
-  "operator:neq",
-  "operator:not",
-  "operator:poolConnectionCount",
-  "operator:replicaPoolKey",
-  "operator:resultFor",
-  "operator:size",
-  "path:attemptA.id",
-  "path:crossFunctionAttempt.id",
-  "path:dedupValue.lifecycle",
-  "path:attemptValue.lifecycle",
-  "path:connection.service_id",
-  "path:connectionValue.queue_depth",
-  "path:deliveryValue.attempt_id",
-  "path:deliveryValue.connection_id",
-  "path:deliveryValue.lifecycle",
-  "path:gatewayA.id",
-  "path:state.acknowledged_delivery_ids",
-  "path:state.applied_delivery_ack_ids",
-  "path:state.allocated_delivery_ids",
-  "path:state.connections",
-  "path:state.last_delivery_outcome",
-  "path:state.private_side_effects",
-  "path:state.pending_connector_results",
-  "path:state.provisional_selection",
-  "path:state.results",
-  "path:state.round_robin_cursors",
-  "path:state.service_credentials",
-  "path:state.settlement_counts",
-  "path:state.tunnel_frames",
-];
-
-const platformRetrieve = [
-  "name:DuplicateResultIgnored",
-  "name:callerRetryAttempt",
-  "path:attemptA.idempotency_key",
-  "path:attemptA.logical_call_id",
-  "path:callerRetryAttempt.id",
-  "path:callerRetryAttempt.idempotency_key",
-  "path:callerRetryAttempt.logical_call_id",
-];
-
-export function retrieveForCapabilities(capabilities) {
-  const retrieve = new Set(alwaysRetrieveable);
-  const has = name => capabilities.includes(name);
-  if (has("identity.enrollment") || has("identity.lifecycle")) {
-    identityRetrieve.forEach(dependency => retrieve.add(dependency));
-    // Identity runners pass IDENTITY ∪ TRANSPORT.
-    transportRetrieve.forEach(dependency => retrieve.add(dependency));
-  }
-  if (
-    has("transport.basic") ||
-    has("routing.redundancy") ||
-    has("delivery.at_least_once")
-  ) {
-    transportRetrieve.forEach(dependency => retrieve.add(dependency));
-    retrieve.add("path:state.last_identity_outcome");
-    retrieve.add("path:state.last_pool_outcome");
-  }
-  if (has("platform.coordinator")) {
-    platformRetrieve.forEach(dependency => retrieve.add(dependency));
-  }
-  return retrieve;
-}
-
-const lastOutcomeRetrieve = [
-  "name:Absent",
-  "name:attemptA",
-  "name:attemptB",
-  "name:state",
-  "operator:eq",
-  "operator:field",
-  "operator:get",
-  "operator:neq",
-  "operator:not",
-  "path:attemptA.id",
-  "path:attemptB.id",
-  "path:state.last_delivery_outcome",
-  "path:state.last_failure_outcome",
-  "path:state.last_identity_outcome",
-  "path:state.last_pool_outcome",
-  "path:state.last_presence_outcome",
-  "path:state.private_side_effects",
-];
-
-const snapshotRetrieve = [
-  ...lastOutcomeRetrieve,
-  "name:gatewayA",
-  "name:poolA",
-  "name:poolAAlt",
-  "operator:connectionValue",
-  "operator:contains",
-  "operator:deliveryValue",
-  "operator:poolConnectionCount",
-  "operator:replicaPoolKey",
-  "path:connection.service_id",
-  "path:connectionValue.queue_depth",
-  "path:state.allocated_delivery_ids",
-  "path:state.connections",
-  "path:state.provisional_selection",
-  "path:state.round_robin_cursors",
-  "path:state.tunnel_frames",
-];
-
-// Action-granularity retrieve: identity snapshots project enrollment maps;
-// Task 3 snapshots project connections, cursors, and last_* tags.
-export function actionGuardRetrieve(capabilities) {
-  const has = name => capabilities.includes(name);
-  if (has("identity.enrollment") || has("identity.lifecycle")) {
-    return retrieveForCapabilities(capabilities);
-  }
-  if (has("delivery.at_least_once")) {
-    return new Set([...alwaysRetrieveable, ...lastOutcomeRetrieve]);
-  }
-  if (has("routing.redundancy") || has("transport.basic")) {
-    return new Set([...alwaysRetrieveable, ...snapshotRetrieve]);
-  }
-  return new Set(alwaysRetrieveable);
-}
-
-function encodedIsModelOnly(expression) {
+function encodedIsModelOnly(expression, app = defaultAppConfig) {
   if (expression?.kind === "name") {
-    return modelOnlyAssertionNames.has(expression.value);
+    return app.modelOnlyNameSet.has(expression.value);
   }
   if (expression?.kind === "call") {
-    return modelOnlyAssertionOperators.has(expression.operator) ||
-      (expression.arguments ?? []).some(encodedIsModelOnly);
+    return app.modelOnlyOperatorSet.has(expression.operator) ||
+      (expression.arguments ?? []).some(argument => encodedIsModelOnly(argument, app));
   }
   if (expression?.kind === "lambda") {
-    return encodedIsModelOnly(expression.body);
+    return encodedIsModelOnly(expression.body, app);
   }
   if (expression?.kind === "let") {
-    return encodedIsModelOnly(expression.value) || encodedIsModelOnly(expression.body);
+    return encodedIsModelOnly(expression.value, app) ||
+      encodedIsModelOnly(expression.body, app);
   }
   return false;
 }
 
-export function classifyGuardAssertion(expression, retrieve) {
+export function classifyGuardAssertion(expression, retrieve, app = defaultAppConfig) {
   const dependencies = observationDependencies(expression);
-  const runtime = !encodedIsModelOnly(expression) &&
+  const runtime = !encodedIsModelOnly(expression, app) &&
     dependencies.every(dependency => retrieve.has(dependency));
   if (runtime) {
     return { scope: "runtime", expression, dependencies };
@@ -1190,8 +682,23 @@ export function classifyGuardAssertion(expression, retrieve) {
   return { scope: "model", expression };
 }
 
-export function extractGuardAssertions(definition, argumentNodes, context, retrieve) {
-  return extractActionObligations(definition, argumentNodes, context, retrieve).guards;
+export function extractGuardAssertions(
+  definition,
+  argumentNodes,
+  context,
+  retrieve,
+  app = defaultAppConfig,
+) {
+  return extractActionObligations(
+    definition,
+    argumentNodes,
+    context,
+    retrieve,
+    undefined,
+    new Map(),
+    false,
+    app,
+  ).guards;
 }
 
 /// Split a Quint `all { }` action into unprimed conjuncts (before) and
@@ -1205,6 +712,7 @@ export function extractActionObligations(
   fixtureNames,
   defs = new Map(),
   deepInline = false,
+  app = defaultAppConfig,
 ) {
   if (!definition) {
     return { guards: [], next: [] };
@@ -1242,8 +750,9 @@ export function extractActionObligations(
       `${context}.${kind}[${index}]`,
       new Set(),
       defs,
+      app,
     );
-    const classified = classifyGuardAssertion(encoded, retrieve);
+    const classified = classifyGuardAssertion(encoded, retrieve, app);
     if (kind === "next") {
       next.push(classified);
     } else {
@@ -1330,39 +839,8 @@ function stateFieldEq(field, encoded) {
   };
 }
 
-const ITF_NEXT_FIELDS = [
-  "last_identity_outcome",
-  "last_pool_outcome",
-  "last_delivery_outcome",
-  "last_failure_outcome",
-  "last_presence_outcome",
-];
-
-function attemptIdExpr(attemptId) {
-  if (attemptId === "attempt-1") {
-    return {
-      kind: "call",
-      operator: "field",
-      arguments: [
-        { kind: "name", value: "attemptA" },
-        { kind: "str", value: "id" },
-      ],
-    };
-  }
-  if (attemptId === "attempt-2") {
-    return {
-      kind: "call",
-      operator: "field",
-      arguments: [
-        { kind: "name", value: "attemptB" },
-        { kind: "str", value: "id" },
-      ],
-    };
-  }
-  return undefined;
-}
-
-function attachItfActionNext(steps, itf, context) {
+export function createItfActionNextHook({ fields = [], mapCounters = [] } = {}) {
+  return (steps, itf, context) => {
   const states = itf?.states;
   if (!Array.isArray(states) || states.length !== steps.length) {
     fail(
@@ -1380,7 +858,7 @@ function attachItfActionNext(steps, itf, context) {
       fail(context, `missing ITF state for action ${step.action} at index ${step.index}`);
     }
     const next = [];
-    for (const field of ITF_NEXT_FIELDS) {
+    for (const field of fields) {
       const encoded = encodeItfValue(after[field]);
       if (!encoded) {
         continue;
@@ -1391,21 +869,24 @@ function attachItfActionNext(steps, itf, context) {
       }
       next.push(stateFieldEq(field, encoded));
     }
-    const sideEffects = after.private_side_effects?.["#map"];
-    const previousSideEffects = before?.private_side_effects?.["#map"];
-    if (Array.isArray(sideEffects)) {
-      for (const [attemptId, count] of sideEffects) {
-        const previous = Array.isArray(previousSideEffects)
-          ? previousSideEffects.find(entry => entry[0] === attemptId)?.[1]
+    for (const counter of mapCounters) {
+      const entries = after[counter.field]?.["#map"];
+      const previousEntries = before?.[counter.field]?.["#map"];
+      if (!Array.isArray(entries)) {
+        continue;
+      }
+      for (const [key, count] of entries) {
+        const previous = Array.isArray(previousEntries)
+          ? previousEntries.find(entry => entry[0] === key)?.[1]
           : undefined;
         const afterCount = itfInt(count);
         const beforeCount = itfInt(previous);
         if (afterCount === beforeCount || afterCount === undefined) {
           continue;
         }
-        const attempt = attemptIdExpr(attemptId);
+        const keyExpression = counter.keyExpression(key);
         const encoded = encodeItfValue(count);
-        if (!attempt || !encoded) {
+        if (!keyExpression || !encoded) {
           continue;
         }
         const expression = {
@@ -1421,10 +902,10 @@ function attachItfActionNext(steps, itf, context) {
                   operator: "field",
                   arguments: [
                     { kind: "name", value: "state" },
-                    { kind: "str", value: "private_side_effects" },
+                    { kind: "str", value: counter.field },
                   ],
                 },
-                attempt,
+                keyExpression,
               ],
             },
             encoded,
@@ -1438,7 +919,7 @@ function attachItfActionNext(steps, itf, context) {
       }
     }
     if (next.length === 0) {
-      for (const field of ITF_NEXT_FIELDS) {
+      for (const field of fields) {
         const encoded = encodeItfValue(after[field]);
         if (encoded) {
           next.push(stateFieldEq(field, encoded));
@@ -1451,6 +932,7 @@ function attachItfActionNext(steps, itf, context) {
     }
     step.next = [...(step.next ?? []), ...next];
   }
+  };
 }
 
 const primitiveOpcodes = new Set([
@@ -1493,16 +975,38 @@ const primitiveOpcodes = new Set([
   "with",
 ]);
 
-function indexDefinitions(modules) {
-  const defs = new Map();
+export function indexDefinitions(modules, table = {}) {
+  const byName = new Map();
   for (const module of modules ?? []) {
     for (const declaration of module.declarations ?? []) {
       if (declaration.kind === "def" && declaration.name) {
-        defs.set(declaration.name, declaration);
+        const declarations = byName.get(declaration.name) ?? [];
+        if (!declarations.some(candidate => candidate.id === declaration.id)) {
+          declarations.push(declaration);
+        }
+        byName.set(declaration.name, declarations);
       }
     }
   }
-  return defs;
+  return {
+    resolve(node) {
+      const resolved = table[String(node?.id)];
+      if (resolved?.kind === "def") {
+        return resolved;
+      }
+      const name = node?.kind === "name" ? node.name : node?.opcode;
+      const declarations = byName.get(name) ?? [];
+      return declarations.length === 1 ? declarations[0] : undefined;
+    },
+  };
+}
+
+function resolveDefinition(defs, node) {
+  if (typeof defs?.resolve === "function") {
+    return defs.resolve(node);
+  }
+  const name = node?.kind === "name" ? node.name : node?.opcode;
+  return defs?.get?.(name);
 }
 
 function instantiateDef(
@@ -1515,10 +1019,11 @@ function instantiateDef(
   deepInline,
   bound,
 ) {
-  if (stack.has(name)) {
+  const definitionKey = definition.id ?? `${definition.name}:${definition.qualifier}`;
+  if (stack.has(definitionKey)) {
     fail(context, `recursive definition ${name}`);
   }
-  stack.add(name);
+  stack.add(definitionKey);
   let body = definition.expr;
   const mapping = new Map();
   if (body.kind === "lambda") {
@@ -1537,7 +1042,7 @@ function instantiateDef(
     deepInline,
     bound,
   );
-  stack.delete(name);
+  stack.delete(definitionKey);
   return inlined;
 }
 
@@ -1549,7 +1054,7 @@ function inlineExpr(node, defs, stack, context, deepInline, bound = new Set()) {
     if (bound.has(node.name)) {
       return node;
     }
-    const definition = defs.get(node.name);
+    const definition = resolveDefinition(defs, node);
     if (shouldInlineDefinition(definition) && !primitiveOpcodes.has(node.name)) {
       return instantiateDef(
         definition,
@@ -1601,7 +1106,7 @@ function inlineExpr(node, defs, stack, context, deepInline, bound = new Set()) {
   const args = (node.args ?? []).map(argument =>
     inlineExpr(argument, defs, stack, context, deepInline, bound),
   );
-  const definition = defs.get(node.opcode);
+  const definition = resolveDefinition(defs, node);
   if (!definition?.expr || primitiveOpcodes.has(node.opcode) || !deepInline) {
     return { ...node, args };
   }
@@ -1617,7 +1122,7 @@ function inlineExpr(node, defs, stack, context, deepInline, bound = new Set()) {
   );
 }
 
-function encodeAction(node, context, fixtureNames, defs, retrieve, deepInline) {
+function encodeAction(node, context, fixtureNames, defs, retrieve, deepInline, app) {
   let action;
   let args;
   if (node.kind === "name") {
@@ -1630,7 +1135,7 @@ function encodeAction(node, context, fixtureNames, defs, retrieve, deepInline) {
     fail(context, `unsupported action expression kind ${node.kind}`);
   }
 
-  if (!allowedActionSet.has(action)) {
+  if (!app.actionSet.has(action)) {
     fail(context, `unsupported action ${action}`);
   }
   args.forEach(argument => collectExpressionNames(argument, fixtureNames));
@@ -1638,17 +1143,22 @@ function encodeAction(node, context, fixtureNames, defs, retrieve, deepInline) {
     kind: "action",
     action,
     arguments: args.map((argument, index) =>
-      encodeExpression(argument, `${context}.${action}[${index}]`)
+      encodeExpression(argument, `${context}.${action}[${index}]`, new Set(), app)
     ),
   };
+  const definition = resolveDefinition(defs, node);
+  if (deepInline && !definition) {
+    fail(context, `complete action ${action} has no compiled definition`);
+  }
   const { guards, next } = extractActionObligations(
-    defs?.get(action),
+    definition,
     args,
     `${context}.${action}`,
     retrieve,
     fixtureNames,
     defs,
     deepInline,
+    app,
   );
   if (guards.length > 0) {
     encoded.guards = guards;
@@ -1666,16 +1176,17 @@ export function extractRun(
   fixtureNames = new Set(),
   actionDefs = new Map(),
   fullyRefinedRuns = new Set(),
+  app = defaultAppConfig,
 ) {
   const context = `${source}:${declaration.name}`;
-  const requiredCapabilities = parseConformanceCapabilities(declaration.doc, context);
-  const retrieve = actionGuardRetrieve(requiredCapabilities);
+  const requiredCapabilities = parseConformanceCapabilities(declaration.doc, context, app);
+  const retrieve = app.actionRetrieveForCapabilities(requiredCapabilities);
   const deepInline = fullyRefinedRuns.has(`${moduleName}.${declaration.name}`);
   const nodes = flattenThen(declaration.expr);
   const initial = nodes.shift();
   if (
     initial?.kind !== "name" ||
-    !["initModel", "initIdentityModel"].includes(initial.name)
+    !app.initializers.has(initial.name)
   ) {
     fail(context, "run must begin with a supported initializer");
   }
@@ -1685,12 +1196,20 @@ export function extractRun(
     const context = `${source}:${declaration.name}:step ${index + 1}`;
     steps.push(
       node.kind === "app" && node.opcode === "actionAll"
-        ? encodeObservation(node, context)
-        : encodeAction(node, context, fixtureNames, actionDefs, retrieve, deepInline),
+        ? encodeObservation(node, context, app)
+        : encodeAction(
+            node,
+            context,
+            fixtureNames,
+            actionDefs,
+            retrieve,
+            deepInline,
+            app,
+          ),
     );
   }
 
-  if (!steps.some(step => step.kind === "observe")) {
+  if (app.requireObserve && !steps.some(step => step.kind === "observe")) {
     fail(context, "run has no asserted observation");
   }
   if (deepInline) {
@@ -1738,11 +1257,8 @@ export function validateFullyRefinedOperators(steps, context = "fully refined ru
   }
 }
 
-function compileScenario(quint, specDir, source, outputPath) {
-  const moduleName = path.basename(source, ".qnt");
-  const init = moduleName.includes("identity") || moduleName.includes("safety")
-    ? "initIdentityModel"
-    : "initModel";
+function compileScenario(quint, specDir, descriptor, outputPath) {
+  const { source, module: moduleName, init, step } = descriptor;
   const result = spawnSync(
     quint,
     [
@@ -1750,7 +1266,7 @@ function compileScenario(quint, specDir, source, outputPath) {
       source,
       `--main=${moduleName}`,
       `--init=${init}`,
-      "--step=stutterModel",
+      `--step=${step}`,
       "--target=json",
       "--flatten=false",
       `--out=${outputPath}`,
@@ -1771,17 +1287,13 @@ function compileScenario(quint, specDir, source, outputPath) {
   if (!module) {
     throw new Error(`Quint compile did not return module ${moduleName}`);
   }
-  return { module, modules: compiled.modules ?? [] };
+  return { module, modules: compiled.modules ?? [], table: compiled.table ?? {} };
 }
 
-function writeFixtureWorkspace(specDir, temporaryDir) {
+function writeFixtureWorkspace(specDir, temporaryDir, app) {
   for (const source of fs.readdirSync(specDir).filter(file => file.endsWith(".qnt"))) {
     const sourceText = fs.readFileSync(path.join(specDir, source), "utf8");
-    const moduleStarts = [...sourceText.matchAll(/^module /gm)].map(match => match.index);
-    const secondModule = moduleStarts[1] ?? -1;
-    const copied = source.endsWith("_scenarios.qnt") && secondModule !== -1
-      ? sourceText.slice(0, secondModule)
-      : sourceText;
+    const copied = app.copySourceForFixtures({ source, sourceText });
     fs.writeFileSync(path.join(temporaryDir, source), copied);
   }
 }
@@ -1833,7 +1345,7 @@ function concreteValue(node, context) {
   };
 }
 
-function resolveFixtures(quint, temporaryDir, source, moduleName, fixtureNames) {
+function resolveFixtures(quint, temporaryDir, source, moduleName, fixtureNames, app) {
   if (fixtureNames.size === 0) {
     return {};
   }
@@ -1867,13 +1379,16 @@ function resolveFixtures(quint, temporaryDir, source, moduleName, fixtureNames) 
 
   const captureSource = [
     "module conformance_fixture_capture {",
-    "  import connector_types.* from \"./connector_types\"",
-    "  import connector_invocation_types.* from \"./connector_invocation_types\"",
+    ...app.fixtureImports.map(entry => {
+      const fixtureModule = typeof entry === "string" ? entry : entry.module;
+      const fixtureSource = typeof entry === "string" ? entry : entry.source;
+      return `  import ${fixtureModule}.* from "./${fixtureSource}"`;
+    }),
     `  import ${moduleName}.* from "./${path.basename(source, ".qnt")}"`,
     `  pure val exportedFixtures = ${evaluation.stdout.trim()}`,
     "  var dummy: bool",
-    "  action init = dummy' = false",
-    "  action step = dummy' = dummy",
+    "  action __conformance_capture_init = dummy' = false",
+    "  action __conformance_capture_step = dummy' = dummy",
     "}",
     "",
   ].join("\n");
@@ -1886,6 +1401,8 @@ function resolveFixtures(quint, temporaryDir, source, moduleName, fixtureNames) 
       "compile",
       path.basename(captureSourcePath),
       "--main=conformance_fixture_capture",
+      "--init=__conformance_capture_init",
+      "--step=__conformance_capture_step",
       "--target=json",
       "--flatten=false",
       `--out=${captureOutputPath}`,
@@ -1953,25 +1470,49 @@ export function validateFullyRefinedRuns(fullyRefinedRuns, scenarios) {
   }
 }
 
+export function validateAppSources(app, sources) {
+  const identities = new Set();
+  for (const descriptor of sources) {
+    const { source, module, init, step } = descriptor;
+    if (![source, module, init, step].every(value => typeof value === "string" && value)) {
+      throw new Error("Quint app sources require source, module, init, and step");
+    }
+    const identity = `${source}\0${module}`;
+    if (identities.has(identity)) {
+      throw new Error(`duplicate Quint app source ${source} module ${module}`);
+    }
+    identities.add(identity);
+    if (!app.initializers.has(init)) {
+      throw new Error(`source ${source} uses unsupported initializer ${init}`);
+    }
+  }
+}
+
 export function generateConformanceTraces({
   root,
   specDir,
   fullyRefinedRuns = new Set(),
+  app = defaultAppConfig,
 }) {
   const quint = path.join(root, "node_modules/.bin/quint");
-  const sources = fs.readdirSync(specDir)
-    .filter(file => /^connector(?:_[a-z]+)*_scenarios\.qnt$/.test(file))
-    .sort();
-  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "arch-gateway-conformance-"));
+  const sources = app.sources(specDir);
+  validateAppSources(app, sources);
+  const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "quint-conformance-"));
 
   try {
-    writeFixtureWorkspace(specDir, temporaryDir);
+    writeFixtureWorkspace(specDir, temporaryDir, app);
     const scenarios = [];
     const fixtures = {};
-    for (const source of sources) {
+    for (const descriptor of sources) {
+      const { source } = descriptor;
       const outputPath = path.join(temporaryDir, `${source}.json`);
-      const { module, modules } = compileScenario(quint, specDir, source, outputPath);
-      const actionDefs = indexDefinitions(modules);
+      const { module, modules, table } = compileScenario(
+        quint,
+        specDir,
+        descriptor,
+        outputPath,
+      );
+      const actionDefs = indexDefinitions(modules, table);
       const fixtureNames = new Set();
       for (const declaration of module.declarations) {
         if (declaration.kind === "def" && declaration.qualifier === "run") {
@@ -1983,6 +1524,7 @@ export function generateConformanceTraces({
               fixtureNames,
               actionDefs,
               fullyRefinedRuns,
+              app,
             ),
           );
         }
@@ -1993,6 +1535,7 @@ export function generateConformanceTraces({
         source,
         module.name,
         fixtureNames,
+        app,
       );
       const itfDir = path.join(temporaryDir, `${module.name}-itf`);
       fs.mkdirSync(itfDir, { recursive: true });
@@ -2043,7 +1586,7 @@ export function generateConformanceTraces({
           }
           scenario.initialState = initialState;
         }
-        attachItfActionNext(
+        app.attachActionNext(
           scenario.steps,
           itf,
           `${scenario.source}:${scenario.name}`,
@@ -2057,7 +1600,7 @@ export function generateConformanceTraces({
     const usedCapabilities = new Set(
       scenarios.flatMap(scenario => scenario.requiredCapabilities),
     );
-    const unusedCapabilities = allowedCapabilities.filter(
+    const unusedCapabilities = app.capabilities.filter(
       capability => !usedCapabilities.has(capability),
     );
     if (unusedCapabilities.length > 0) {
@@ -2074,15 +1617,17 @@ export function generateConformanceTraces({
     )].sort();
     const runtimeObservationDependencyDigest = validateRuntimeObservationDependencies(
       runtimeObservationDependencies,
+      "runtime observation dependency vocabulary",
+      app.runtimeObservationDependencyDigest,
     );
     return {
       schemaVersion,
       modelDigest: digestModel(specDir),
       vocabulary: {
-        actions: allowedActions,
-        capabilities: allowedCapabilities,
-        expressionOperators: allowedExpressionOperators,
-        expressionNames: allowedExpressionNames,
+        actions: app.actions,
+        capabilities: app.capabilities,
+        expressionOperators: app.expressionOperators,
+        expressionNames: app.expressionNames,
         refinementExpressionOperators: supportedNormalizedExpressionOperators,
         runtimeObservationDependencies,
         runtimeObservationDependencyDigest,

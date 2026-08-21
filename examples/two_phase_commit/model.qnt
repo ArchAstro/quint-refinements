@@ -60,13 +60,23 @@ module two_phase_commit {
     state' = { ...state, status: Aborted },
   }
 
+  /// @conformance requires = [txn.commit]
   run commitRun = init
     .then(begin)
     .then(prepare)
     .then(flushWal)
     .then(commitPrepared)
+    .then(all {
+      assert(state.status == Committed),
+      state' = state,
+    })
 
+  /// @conformance requires = [txn.commit]
   run abortBeforePrepareRun = init
     .then(begin)
     .then(abort)
+    .then(all {
+      assert(state.status == Aborted),
+      state' = state,
+    })
 }

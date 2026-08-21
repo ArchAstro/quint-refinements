@@ -31,9 +31,8 @@ fn rust_status_fixtures_must_match_quint_json() {
 fn missing_fixture_owner_fails_closed() {
     let artifact = ConformanceArtifact::parse(TRACES).expect("parse");
     let error = FixtureTable::new("two_phase_commit")
-        .insert("Idle", &Status::Idle)
         .validate(&artifact)
-        .expect_err("partial fixture table");
+        .expect_err("missing statuses fixture owner");
     assert!(
         error.message().contains("names differ"),
         "{}",
@@ -47,11 +46,6 @@ fn universe_set_without_idle_fails_the_begin_membership_guard() {
     let scenario = artifact.scenarios.first().expect("commitRun");
     let ownership = collect_ownership_records(&[coordinator::OWNERSHIP]).expect("ownership");
     let fixtures = FixtureTable::new("two_phase_commit")
-        .insert("Aborted", &Status::Aborted)
-        .insert("Committed", &Status::Committed)
-        .insert("Idle", &Status::Idle)
-        .insert("Open", &Status::Open)
-        .insert("Prepared", &Status::Prepared)
         .insert_set("statuses", &[Status::Open, Status::Prepared]);
     let mut driver = coordinator::Coordinator::new();
     let error = refine_scenario(

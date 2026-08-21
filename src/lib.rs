@@ -21,7 +21,10 @@ pub use artifact::{
     ArtifactAssertion, ArtifactScenario, ArtifactStep, ArtifactVocabulary, AssertionScope,
     ConformanceArtifact,
 };
-pub use drive::{PrimitiveDriver, evaluate_refined_tape, refine_scenario};
+pub use drive::{
+    AsyncPrimitiveDriver, PrimitiveDriver, evaluate_refined_tape, refine_scenario,
+    refine_scenario_async,
+};
 pub use error::Error;
 pub use evaluate::{
     NormalizedRuntimeEvidence, RuntimeValue, evaluate_all_action_steps,

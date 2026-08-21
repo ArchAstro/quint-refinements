@@ -158,7 +158,7 @@ impl FixtureTable {
             let Some(artifact_json) = expected.get(name) else {
                 return Err(Error::new(format!("artifact is missing fixture {name}")));
             };
-            if artifact_json != rust_json {
+            if !fixture_json_equal(rust_json, artifact_json) {
                 return Err(Error::new(format!(
                     "fixture {name} JSON diverged: artifact {artifact_json} rust {rust_json}"
                 )));
@@ -219,6 +219,27 @@ pub(crate) fn fixture_json_matches(rust: &Value, artifact: &Value) -> bool {
                     .get(key)
                     .is_some_and(|artifact_value| fixture_json_matches(value, artifact_value))
             })
+        }
+        _ => false,
+    }
+}
+
+fn fixture_json_equal(rust: &Value, artifact: &Value) -> bool {
+    if rust == artifact {
+        return true;
+    }
+    match (rust, artifact) {
+        (Value::Array(rust_set), Value::Object(artifact_object)) => artifact_object
+            .get("#set")
+            .and_then(Value::as_array)
+            .is_some_and(|artifact_set| set_json_equal(rust_set, artifact_set)),
+        (Value::Object(rust_object), Value::Object(artifact_object)) => {
+            rust_object.len() == artifact_object.len()
+                && rust_object.iter().all(|(key, value)| {
+                    artifact_object
+                        .get(key)
+                        .is_some_and(|artifact_value| fixture_json_equal(value, artifact_value))
+                })
         }
         _ => false,
     }

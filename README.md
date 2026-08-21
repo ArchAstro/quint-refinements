@@ -20,7 +20,8 @@ story**. This crate makes execution generic too.
 1. Generate JSON from a Quint app (`harness/`).
 2. Rust primitives declare ownership (`quint_ownership!`).
 3. `schedule_primitive_runs` maps JSON actions onto primitive runs.
-4. `PrimitiveDriver::run_primitive` runs **one** impl command and returns
+4. `PrimitiveDriver::run_primitive` or `AsyncPrimitiveDriver::run_primitive`
+   runs **one** impl command and returns
    **exactly** `owned_actions.len()` snapshots, in that order.
 5. Rust structs own Quint fixture names (`FixtureTable` / `QuintFixture`).
 6. `refine_scenario` evaluates **every** retrieve-before guard and retrieve-after
@@ -47,7 +48,7 @@ of several commands), not a sequence.
 
 ## Fixtures
 
-Quint `pure val` names (`Idle`, `attemptA`) and universe sets
+Quint `pure val` names (`attemptA`) and universe sets
 (`statuses.contains(...)`) are not model-only skips. They are Rust values
 that must match the JSON artifact:
 
@@ -55,7 +56,6 @@ that must match the JSON artifact:
 impl QuintFixture for Status { /* artifact_json + runtime_value */ }
 
 let fixtures = FixtureTable::new("two_phase_commit")
-    .insert("Idle", &Status::Idle)
     .insert_set("statuses", &[Status::Idle, Status::Open, /* ... */]);
 fixtures.validate(&artifact)?;
 ```
@@ -72,10 +72,12 @@ the next, including when it is nested under `match` / `if`.
 
 ## Plug-in surface (what an app provides)
 
-- Quint sources plus a generate config (vocab, retrieve sets, source glob).
+- Quint sources plus an app config (explicit source/module/init/step,
+  vocabulary, retrieve policy, and fixture imports).
 - `quint_ownership!` on each implementation primitive.
 - A `FixtureTable` of real structs for every Quint name the JSON uses.
-- A `PrimitiveDriver` that knows how to run those primitive ids.
+- A sync `PrimitiveDriver` or runtime-neutral `AsyncPrimitiveDriver` that knows
+  how to run those primitive ids.
 - `NormalizedRuntimeEvidence` for domain snapshots (`state` only).
 
 Coverage policy (which scenarios are required, `coverage.toml`) stays in the
@@ -95,6 +97,7 @@ An app selects skip-nothing runs by stable module and run id:
 generateConformanceTraces({
   root,
   specDir,
+  app,
   fullyRefinedRuns: new Set(["two_phase_commit.commitRun"]),
 })
 ```
@@ -111,10 +114,13 @@ generation.
 
 ## Example
 
-`examples/two_phase_commit/` is a tiny 2PC: Quint has `prepare`, `flushWal`,
-`commitPrepared`; Rust `commit()` is one function that refines those three.
+`examples/two_phase_commit/` is a second configured Quint app, not a handwritten
+artifact. Quint has `prepare`, `flushWal`, `commitPrepared`; Rust `commit()` is
+one function that refines those three through both sync and async package APIs.
 
 ```
+node examples/two_phase_commit/generate-traces.mjs --check
 cargo test --test two_phase_commit
+cargo test --test generated_two_phase_commit
 cargo run --example two_phase_commit
 ```

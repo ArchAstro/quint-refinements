@@ -153,15 +153,24 @@ where
     let mut snapshots = vec![init];
     for run in runs {
         let tape = run_primitive(&run.primitive, &run.owned_actions)?;
-        if tape.len() != run.owned_actions.len() {
-            return Err(format!(
-                "primitive {} owns {} actions but returned {} evidence snapshots",
-                run.primitive,
-                run.owned_actions.len(),
-                tape.len()
-            ));
-        }
-        snapshots.extend(tape);
+        extend_validated_tape(&mut snapshots, &run, tape)?;
     }
     Ok(snapshots)
+}
+
+pub(crate) fn extend_validated_tape<E>(
+    snapshots: &mut Vec<E>,
+    run: &ScheduledPrimitiveRun,
+    tape: Vec<E>,
+) -> Result<(), String> {
+    if tape.len() != run.owned_actions.len() {
+        return Err(format!(
+            "primitive {} owns {} actions but returned {} evidence snapshots",
+            run.primitive,
+            run.owned_actions.len(),
+            tape.len()
+        ));
+    }
+    snapshots.extend(tape);
+    Ok(())
 }
