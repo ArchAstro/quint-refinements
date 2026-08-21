@@ -66,9 +66,9 @@ fixtures.validate(&artifact)?;
 - **Observe `*Inv` theorems** — still Quint-only; those are not action guards.
 
 `evaluate_every_action_step` still skips `scope: model` for unmigrated
-gateway runners. `refine_scenario` does not. `evaluate_owned_conjuncts`
-evaluates fixture-backed conjuncts whose operators the crate implements
-(`contains`, `eq`, `field`, …); nested Quint helpers stay until inlined.
+gateway runners. `refine_scenario` / `evaluate_refined_tape` do not.
+`assign` is a boolean (`x' = e`): RHS in the current snapshot, LHS in
+the next, including when it is nested under `match` / `if`.
 
 ## Plug-in surface (what an app provides)
 
@@ -88,6 +88,26 @@ product. This crate does not know Arch Gateway.
 as after (`assign`). Unknown AST kinds fail closed. Observe keeps the closed
 adapter vocabulary. ITF last_* deltas are extra runtime next, not a substitute
 for the Quint assignment.
+
+An app selects skip-nothing runs by stable module and run id:
+
+```js
+generateConformanceTraces({
+  root,
+  specDir,
+  fullyRefinedRuns: new Set(["two_phase_commit.commitRun"]),
+})
+```
+
+Selected runs recursively inline Quint definitions and lets. Unselected runs
+keep the smaller compatibility artifact while their runtime adapters migrate.
+Runtime maps retain structural keys, sets retain structural members, and
+assignment compares the complete normalized before/after state exactly. Each
+selected run also carries its generated ITF initial state, so adapters start
+from every model field and overlay concrete observations instead of building a
+sparse test twin. `expression_vocabulary.json` is the shared generator/Rust
+operator contract; selecting a run with an unsupported operator fails during
+generation.
 
 ## Example
 

@@ -7,6 +7,13 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+export const supportedNormalizedExpressionOperators = JSON.parse(
+  fs.readFileSync(new URL("../expression_vocabulary.json", import.meta.url), "utf8"),
+);
+const supportedNormalizedExpressionOperatorSet = new Set(
+  supportedNormalizedExpressionOperators,
+);
+
 export const schemaVersion = 2;
 
 // The generated artifact contains the readable, sorted 242-entry vocabulary.
@@ -376,16 +383,21 @@ export function parseConformanceCapabilities(doc, context = "declaration") {
 }
 
 export function encodeExpression(node, context = "expression", boundNames = new Set()) {
-  return encodeExpressionNode(node, context, boundNames, true);
+  return encodeExpressionNode(node, context, boundNames, true, new Map());
 }
 
 /// Guard conjuncts use the full Quint expression AST. Observe chapters keep
 /// the closed adapter vocabulary.
-export function encodeGuardExpression(node, context = "expression", boundNames = new Set()) {
-  return encodeExpressionNode(node, context, boundNames, false);
+export function encodeGuardExpression(
+  node,
+  context = "expression",
+  boundNames = new Set(),
+  defs = new Map(),
+) {
+  return encodeExpressionNode(node, context, boundNames, false, defs);
 }
 
-function encodeExpressionNode(node, context, boundNames, closedVocab) {
+function encodeExpressionNode(node, context, boundNames, closedVocab, defs) {
   if (!node || typeof node !== "object") {
     fail(context, "expected a Quint AST node");
   }
@@ -401,6 +413,22 @@ function encodeExpressionNode(node, context, boundNames, closedVocab) {
     ) {
       fail(context, `unsupported expression name ${node.name}`);
     }
+    if (!closedVocab && node.name === "disabled") {
+      return { kind: "bool", value: false };
+    }
+    if (
+      !closedVocab &&
+      defs.size > 0 &&
+      !boundNames.has(node.name) &&
+      node.name !== "state" &&
+      node.name !== "Absent"
+    ) {
+      const definition = defs.get(node.name);
+      if (!definition || definition.qualifier === "val") {
+        // Unit constructors (`CertificateValid`, `ReplicaUp`) are string tags.
+        return { kind: "str", value: node.name };
+      }
+    }
     return { kind: "name", value: node.name };
   }
   if (node.kind === "lambda") {
@@ -409,7 +437,13 @@ function encodeExpressionNode(node, context, boundNames, closedVocab) {
     return {
       kind: "lambda",
       parameters,
-      body: encodeExpressionNode(node.expr, `${context}.body`, nestedBoundNames, closedVocab),
+      body: encodeExpressionNode(
+        node.expr,
+        `${context}.body`,
+        nestedBoundNames,
+        closedVocab,
+        defs,
+      ),
     };
   }
   if (node.kind === "let") {
@@ -426,8 +460,15 @@ function encodeExpressionNode(node, context, boundNames, closedVocab) {
         `${context}.let.value`,
         boundNames,
         closedVocab,
+        defs,
       ),
-      body: encodeExpressionNode(node.expr, `${context}.let.body`, nestedBoundNames, closedVocab),
+      body: encodeExpressionNode(
+        node.expr,
+        `${context}.let.body`,
+        nestedBoundNames,
+        closedVocab,
+        defs,
+      ),
     };
   }
   if (node.kind === "app") {
@@ -443,6 +484,7 @@ function encodeExpressionNode(node, context, boundNames, closedVocab) {
           `${context}.${node.opcode}[${index}]`,
           boundNames,
           closedVocab,
+          defs,
         )
       ),
     };
@@ -463,6 +505,52 @@ function expressionIsModelOnly(node) {
     return expressionIsModelOnly(node.expr);
   }
   return false;
+}
+
+function shouldInlineDefinition(definition) {
+  if (!definition?.expr) {
+    return false;
+  }
+  // Nullary stateful `def` (selectionValue). `pureval` stays a fixture name.
+  // `action disabled` encodes as `false` rather than expanding the action.
+  return definition.qualifier === "def" && definition.expr.kind !== "lambda";
+}
+
+function collectNamedFixtures(node, names, defs, bound = new Set()) {
+  if (!node || typeof node !== "object") {
+    return;
+  }
+  if (node.kind === "name") {
+    if (!bound.has(node.name) && node.name !== "state" && node.name !== "Absent") {
+      const definition = defs.get(node.name);
+      const qualifier = definition?.qualifier;
+      if (
+        qualifier === "pureval" ||
+        (qualifier === "puredef" && definition.expr?.kind !== "lambda")
+      ) {
+        names.add(node.name);
+      }
+    }
+    return;
+  }
+  if (node.kind === "app") {
+    (node.args ?? []).forEach(argument => collectNamedFixtures(argument, names, defs, bound));
+    return;
+  }
+  if (node.kind === "lambda") {
+    const nested = new Set(bound);
+    (node.params ?? []).forEach(parameter => nested.add(parameter.name));
+    collectNamedFixtures(node.expr, names, defs, nested);
+    return;
+  }
+  if (node.kind === "let") {
+    const nested = new Set(bound);
+    if (node.opdef?.name) {
+      nested.add(node.opdef.name);
+    }
+    collectNamedFixtures(node.opdef?.expr, names, defs, bound);
+    collectNamedFixtures(node.expr, names, defs, nested);
+  }
 }
 
 function collectUniverseFixtureNames(node, names, bound = new Set()) {
@@ -631,6 +719,120 @@ export function validateRuntimeObservationDependencies(
   return digest;
 }
 
+function freeNames(node, bound = new Set()) {
+  if (!node || typeof node !== "object") {
+    return new Set();
+  }
+  if (node.kind === "name") {
+    return bound.has(node.name) ? new Set() : new Set([node.name]);
+  }
+  if (node.kind === "app") {
+    return new Set(
+      (node.args ?? []).flatMap(argument => [...freeNames(argument, bound)]),
+    );
+  }
+  if (node.kind === "lambda") {
+    const nested = new Set(bound);
+    (node.params ?? []).forEach(parameter => nested.add(parameter.name));
+    return freeNames(node.expr, nested);
+  }
+  if (node.kind === "let") {
+    const names = freeNames(node.opdef?.expr, bound);
+    const nested = new Set(bound);
+    if (node.opdef?.name) {
+      nested.add(node.opdef.name);
+    }
+    return new Set([...names, ...freeNames(node.expr, nested)]);
+  }
+  return new Set();
+}
+
+function allNames(node) {
+  if (!node || typeof node !== "object") {
+    return new Set();
+  }
+  if (node.kind === "name") {
+    return new Set([node.name]);
+  }
+  if (node.kind === "app") {
+    return new Set((node.args ?? []).flatMap(argument => [...allNames(argument)]));
+  }
+  if (node.kind === "lambda") {
+    return new Set([
+      ...(node.params ?? []).map(parameter => parameter.name),
+      ...allNames(node.expr),
+    ]);
+  }
+  if (node.kind === "let") {
+    return new Set([
+      ...(node.opdef?.name ? [node.opdef.name] : []),
+      ...allNames(node.opdef?.expr),
+      ...allNames(node.expr),
+    ]);
+  }
+  return new Set();
+}
+
+function renameBoundOccurrences(node, name, replacement, shadowed = false) {
+  if (!node || typeof node !== "object") {
+    return node;
+  }
+  if (node.kind === "name") {
+    return !shadowed && node.name === name ? { ...node, name: replacement } : node;
+  }
+  if (node.kind === "app") {
+    return {
+      ...node,
+      args: (node.args ?? []).map(argument =>
+        renameBoundOccurrences(argument, name, replacement, shadowed)
+      ),
+    };
+  }
+  if (node.kind === "lambda") {
+    const nestedShadowed = shadowed ||
+      (node.params ?? []).some(parameter => parameter.name === name);
+    return {
+      ...node,
+      expr: renameBoundOccurrences(node.expr, name, replacement, nestedShadowed),
+    };
+  }
+  if (node.kind === "let") {
+    const bindsName = node.opdef?.name === name;
+    return {
+      ...node,
+      opdef: node.opdef
+        ? {
+            ...node.opdef,
+            expr: renameBoundOccurrences(
+              node.opdef.expr,
+              name,
+              replacement,
+              shadowed,
+            ),
+          }
+        : node.opdef,
+      expr: renameBoundOccurrences(
+        node.expr,
+        name,
+        replacement,
+        shadowed || bindsName,
+      ),
+    };
+  }
+  return node;
+}
+
+function freshBoundName(name, used) {
+  let index = 1;
+  let candidate = `${name}__inlined${index}`;
+  while (used.has(candidate)) {
+    index += 1;
+    candidate = `${name}__inlined${index}`;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
 function substituteNames(node, mapping) {
   if (!node || typeof node !== "object") {
     return node;
@@ -645,32 +847,86 @@ function substituteNames(node, mapping) {
     };
   }
   if (node.kind === "lambda") {
+    const substitutionFreeNames = new Set(
+      [...mapping.values()].flatMap(value => [...freeNames(value)]),
+    );
+    const used = new Set([
+      ...allNames(node),
+      ...substitutionFreeNames,
+      ...mapping.keys(),
+    ]);
+    let expression = node.expr;
+    const parameters = (node.params ?? []).map(parameter => {
+      if (!substitutionFreeNames.has(parameter.name)) {
+        return parameter;
+      }
+      const replacement = freshBoundName(parameter.name, used);
+      expression = renameBoundOccurrences(
+        expression,
+        parameter.name,
+        replacement,
+      );
+      return { ...parameter, name: replacement };
+    });
     const nested = new Map(mapping);
     for (const parameter of node.params ?? []) {
       nested.delete(parameter.name);
     }
-    return { ...node, expr: substituteNames(node.expr, nested) };
+    return { ...node, params: parameters, expr: substituteNames(expression, nested) };
   }
   if (node.kind === "let") {
+    const name = node.opdef?.name;
+    const substitutionFreeNames = new Set(
+      [...mapping.values()].flatMap(value => [...freeNames(value)]),
+    );
+    const used = new Set([
+      ...allNames(node),
+      ...substitutionFreeNames,
+      ...mapping.keys(),
+    ]);
+    const replacement = name && substitutionFreeNames.has(name)
+      ? freshBoundName(name, used)
+      : name;
+    const expression = name && replacement !== name
+      ? renameBoundOccurrences(node.expr, name, replacement)
+      : node.expr;
+    const nested = new Map(mapping);
+    if (name) {
+      nested.delete(name);
+    }
     return {
       ...node,
       opdef: node.opdef
-        ? { ...node.opdef, expr: substituteNames(node.opdef.expr, mapping) }
+        ? {
+            ...node.opdef,
+            name: replacement,
+            expr: substituteNames(node.opdef.expr, mapping),
+          }
         : node.opdef,
-      expr: substituteNames(node.expr, mapping),
+      expr: substituteNames(expression, nested),
     };
   }
   return node;
 }
 
-function flattenActionAll(node) {
+function flattenActionAll(node, substituteLets = false, lets = new Map()) {
   if (node?.kind === "app" && node.opcode === "actionAll") {
-    return (node.args ?? []).flatMap(flattenActionAll);
+    return (node.args ?? []).flatMap(argument =>
+      flattenActionAll(argument, substituteLets, lets)
+    );
   }
   if (node?.kind === "let") {
-    return flattenActionAll(node.expr);
+    if (!substituteLets) {
+      return flattenActionAll(node.expr, false);
+    }
+    const nested = new Map(lets);
+    if (node.opdef?.name) {
+      nested.set(node.opdef.name, substituteNames(node.opdef.expr, lets));
+    }
+    return flattenActionAll(node.expr, true, nested);
   }
-  return node ? [node] : [];
+  const substituted = substituteLets ? substituteNames(node, lets) : node;
+  return substituted ? [substituted] : [];
 }
 
 function isAssignment(node) {
@@ -942,6 +1198,8 @@ export function extractActionObligations(
   context,
   retrieve,
   fixtureNames,
+  defs = new Map(),
+  deepInline = false,
 ) {
   if (!definition) {
     return { guards: [], next: [] };
@@ -959,18 +1217,27 @@ export function extractActionObligations(
     });
     body = body.expr;
   }
+  body = substituteNames(body, mapping);
+  if (deepInline) {
+    body = inlineExpr(body, defs, new Set(), context, true);
+  }
   if (fixtureNames) {
-    collectUniverseFixtureNames(substituteNames(body, mapping), fixtureNames);
+    collectUniverseFixtureNames(body, fixtureNames);
+    collectNamedFixtures(body, fixtureNames, defs);
   }
   const guards = [];
   const next = [];
-  for (const [index, conjunct] of flattenActionAll(body).entries()) {
+  for (const [index, conjunct] of flattenActionAll(body, deepInline).entries()) {
     if (!conjunct) {
       continue;
     }
-    const substituted = substituteNames(conjunct, mapping);
     const kind = isAssignment(conjunct) ? "next" : "guard";
-    const encoded = encodeGuardExpression(substituted, `${context}.${kind}[${index}]`);
+    const encoded = encodeGuardExpression(
+      conjunct,
+      `${context}.${kind}[${index}]`,
+      new Set(),
+      defs,
+    );
     const classified = classifyGuardAssertion(encoded, retrieve);
     if (kind === "next") {
       next.push(classified);
@@ -1181,19 +1448,171 @@ function attachItfActionNext(steps, itf, context) {
   }
 }
 
-function indexActionDefinitions(modules) {
-  const actions = new Map();
+const primitiveOpcodes = new Set([
+  "List",
+  "Present",
+  "Rec",
+  "Set",
+  "Tup",
+  "actionAll",
+  "actionAny",
+  "and",
+  "append",
+  "assign",
+  "contains",
+  "eq",
+  "exclude",
+  "exists",
+  "field",
+  "filter",
+  "fold",
+  "forall",
+  "get",
+  "iadd",
+  "igt",
+  "ilt",
+  "ilte",
+  "igte",
+  "indices",
+  "ite",
+  "length",
+  "mapBy",
+  "matchVariant",
+  "neq",
+  "not",
+  "nth",
+  "or",
+  "set",
+  "size",
+  "union",
+  "with",
+]);
+
+function indexDefinitions(modules) {
+  const defs = new Map();
   for (const module of modules ?? []) {
     for (const declaration of module.declarations ?? []) {
-      if (declaration.kind === "def" && declaration.qualifier === "action") {
-        actions.set(declaration.name, declaration);
+      if (declaration.kind === "def" && declaration.name) {
+        defs.set(declaration.name, declaration);
       }
     }
   }
-  return actions;
+  return defs;
 }
 
-function encodeAction(node, context, fixtureNames, actionDefs, retrieve) {
+function instantiateDef(
+  definition,
+  args,
+  defs,
+  stack,
+  context,
+  name,
+  deepInline,
+  bound,
+) {
+  if (stack.has(name)) {
+    fail(context, `recursive definition ${name}`);
+  }
+  stack.add(name);
+  let body = definition.expr;
+  const mapping = new Map();
+  if (body.kind === "lambda") {
+    (body.params ?? []).forEach((parameter, index) => {
+      if (args[index]) {
+        mapping.set(parameter.name, args[index]);
+      }
+    });
+    body = body.expr;
+  }
+  const inlined = inlineExpr(
+    substituteNames(body, mapping),
+    defs,
+    stack,
+    context,
+    deepInline,
+    bound,
+  );
+  stack.delete(name);
+  return inlined;
+}
+
+function inlineExpr(node, defs, stack, context, deepInline, bound = new Set()) {
+  if (!node || typeof node !== "object") {
+    return node;
+  }
+  if (node.kind === "name") {
+    if (bound.has(node.name)) {
+      return node;
+    }
+    const definition = defs.get(node.name);
+    if (shouldInlineDefinition(definition) && !primitiveOpcodes.has(node.name)) {
+      return instantiateDef(
+        definition,
+        [],
+        defs,
+        stack,
+        context,
+        node.name,
+        deepInline,
+        bound,
+      );
+    }
+    return node;
+  }
+  if (node.kind === "lambda") {
+    const nested = new Set(bound);
+    (node.params ?? []).forEach(parameter => nested.add(parameter.name));
+    return {
+      ...node,
+      expr: inlineExpr(node.expr, defs, stack, context, deepInline, nested),
+    };
+  }
+  if (node.kind === "let") {
+    const nested = new Set(bound);
+    if (node.opdef?.name) {
+      nested.add(node.opdef.name);
+    }
+    return {
+      ...node,
+      opdef: node.opdef
+        ? {
+            ...node.opdef,
+            expr: inlineExpr(
+              node.opdef.expr,
+              defs,
+              stack,
+              context,
+              deepInline,
+              bound,
+            ),
+          }
+        : node.opdef,
+      expr: inlineExpr(node.expr, defs, stack, context, deepInline, nested),
+    };
+  }
+  if (node.kind !== "app") {
+    return node;
+  }
+  const args = (node.args ?? []).map(argument =>
+    inlineExpr(argument, defs, stack, context, deepInline, bound),
+  );
+  const definition = defs.get(node.opcode);
+  if (!definition?.expr || primitiveOpcodes.has(node.opcode) || !deepInline) {
+    return { ...node, args };
+  }
+  return instantiateDef(
+    definition,
+    args,
+    defs,
+    stack,
+    context,
+    node.opcode,
+    deepInline,
+    bound,
+  );
+}
+
+function encodeAction(node, context, fixtureNames, defs, retrieve, deepInline) {
   let action;
   let args;
   if (node.kind === "name") {
@@ -1218,11 +1637,13 @@ function encodeAction(node, context, fixtureNames, actionDefs, retrieve) {
     ),
   };
   const { guards, next } = extractActionObligations(
-    actionDefs?.get(action),
+    defs?.get(action),
     args,
     `${context}.${action}`,
     retrieve,
     fixtureNames,
+    defs,
+    deepInline,
   );
   if (guards.length > 0) {
     encoded.guards = guards;
@@ -1239,10 +1660,12 @@ export function extractRun(
   moduleName,
   fixtureNames = new Set(),
   actionDefs = new Map(),
+  fullyRefinedRuns = new Set(),
 ) {
   const context = `${source}:${declaration.name}`;
   const requiredCapabilities = parseConformanceCapabilities(declaration.doc, context);
   const retrieve = actionGuardRetrieve(requiredCapabilities);
+  const deepInline = fullyRefinedRuns.has(`${moduleName}.${declaration.name}`);
   const nodes = flattenThen(declaration.expr);
   const initial = nodes.shift();
   if (
@@ -1258,12 +1681,15 @@ export function extractRun(
     steps.push(
       node.kind === "app" && node.opcode === "actionAll"
         ? encodeObservation(node, context)
-        : encodeAction(node, context, fixtureNames, actionDefs, retrieve),
+        : encodeAction(node, context, fixtureNames, actionDefs, retrieve, deepInline),
     );
   }
 
   if (!steps.some(step => step.kind === "observe")) {
     fail(context, "run has no asserted observation");
+  }
+  if (deepInline) {
+    validateFullyRefinedOperators(steps, context);
   }
 
   return {
@@ -1274,6 +1700,37 @@ export function extractRun(
     requiredCapabilities,
     steps: steps.map((step, index) => ({ index, ...step })),
   };
+}
+
+export function validateFullyRefinedOperators(steps, context = "fully refined run") {
+  const operators = new Set();
+  const visit = expression => {
+    if (!expression || typeof expression !== "object") {
+      return;
+    }
+    if (expression.kind === "call") {
+      operators.add(expression.operator);
+      expression.arguments.forEach(visit);
+    } else if (expression.kind === "lambda") {
+      visit(expression.body);
+    } else if (expression.kind === "let") {
+      visit(expression.value);
+      visit(expression.body);
+    }
+  };
+  for (const step of steps) {
+    if (step.kind !== "action") {
+      continue;
+    }
+    [...(step.guards ?? []), ...(step.next ?? [])]
+      .forEach(assertion => visit(assertion.expression));
+  }
+  const unsupported = [...operators]
+    .filter(operator => !supportedNormalizedExpressionOperatorSet.has(operator))
+    .sort();
+  if (unsupported.length > 0) {
+    fail(context, `uses unsupported normalized operators ${unsupported.join(", ")}`);
+  }
 }
 
 function compileScenario(quint, specDir, source, outputPath) {
@@ -1479,7 +1936,23 @@ function digestModel(specDir) {
   return `sha256:${hash.digest("hex")}`;
 }
 
-export function generateConformanceTraces({ root, specDir }) {
+export function validateFullyRefinedRuns(fullyRefinedRuns, scenarios) {
+  const available = new Set(
+    scenarios.map(scenario => `${scenario.module}.${scenario.name}`),
+  );
+  const unknown = [...fullyRefinedRuns]
+    .filter(run => !available.has(run))
+    .sort();
+  if (unknown.length > 0) {
+    throw new Error(`unknown fully refined runs: ${unknown.join(", ")}`);
+  }
+}
+
+export function generateConformanceTraces({
+  root,
+  specDir,
+  fullyRefinedRuns = new Set(),
+}) {
   const quint = path.join(root, "node_modules/.bin/quint");
   const sources = fs.readdirSync(specDir)
     .filter(file => /^connector(?:_[a-z]+)*_scenarios\.qnt$/.test(file))
@@ -1493,12 +1966,19 @@ export function generateConformanceTraces({ root, specDir }) {
     for (const source of sources) {
       const outputPath = path.join(temporaryDir, `${source}.json`);
       const { module, modules } = compileScenario(quint, specDir, source, outputPath);
-      const actionDefs = indexActionDefinitions(modules);
+      const actionDefs = indexDefinitions(modules);
       const fixtureNames = new Set();
       for (const declaration of module.declarations) {
         if (declaration.kind === "def" && declaration.qualifier === "run") {
           scenarios.push(
-            extractRun(declaration, source, module.name, fixtureNames, actionDefs),
+            extractRun(
+              declaration,
+              source,
+              module.name,
+              fixtureNames,
+              actionDefs,
+              fullyRefinedRuns,
+            ),
           );
         }
       }
@@ -1549,6 +2029,15 @@ export function generateConformanceTraces({ root, specDir }) {
         if (!itf) {
           throw new Error(`missing ITF trace for ${scenario.module}.${scenario.name}`);
         }
+        if (fullyRefinedRuns.has(`${scenario.module}.${scenario.name}`)) {
+          const initialState = itf.states?.[0]?.state;
+          if (!initialState) {
+            throw new Error(
+              `missing Quint initial state for fully refined run ${scenario.module}.${scenario.name}`,
+            );
+          }
+          scenario.initialState = initialState;
+        }
         attachItfActionNext(
           scenario.steps,
           itf,
@@ -1559,6 +2048,7 @@ export function generateConformanceTraces({ root, specDir }) {
     if (scenarios.length === 0) {
       throw new Error("no asserted Quint runs were discovered");
     }
+    validateFullyRefinedRuns(fullyRefinedRuns, scenarios);
     const usedCapabilities = new Set(
       scenarios.flatMap(scenario => scenario.requiredCapabilities),
     );
@@ -1588,6 +2078,7 @@ export function generateConformanceTraces({ root, specDir }) {
         capabilities: allowedCapabilities,
         expressionOperators: allowedExpressionOperators,
         expressionNames: allowedExpressionNames,
+        refinementExpressionOperators: supportedNormalizedExpressionOperators,
         runtimeObservationDependencies,
         runtimeObservationDependencyDigest,
       },

@@ -19,8 +19,24 @@ pub struct ConformanceArtifact {
 impl ConformanceArtifact {
     /// Parses the checked JSON artifact without interpreting Quint source.
     pub fn parse(json: &str) -> Result<Self, Error> {
-        serde_json::from_str(json)
-            .map_err(|error| Error::new(format!("invalid refinement artifact: {error}")))
+        let artifact: Self = serde_json::from_str(json)
+            .map_err(|error| Error::new(format!("invalid refinement artifact: {error}")))?;
+        let expected_operators: Vec<String> = serde_json::from_str(include_str!(
+            "../expression_vocabulary.json"
+        ))
+        .map_err(|error| Error::new(format!("invalid embedded expression vocabulary: {error}")))?;
+        let has_complete_refinement = artifact
+            .scenarios
+            .iter()
+            .any(|scenario| scenario.initial_state.is_some());
+        if has_complete_refinement
+            && artifact.vocabulary.refinement_expression_operators != expected_operators
+        {
+            return Err(Error::new(
+                "artifact refinement expression vocabulary differs from the Rust evaluator",
+            ));
+        }
+        Ok(artifact)
     }
 }
 
@@ -32,6 +48,8 @@ pub struct ArtifactVocabulary {
     pub capabilities: Vec<String>,
     pub expression_operators: Vec<String>,
     pub expression_names: Vec<String>,
+    #[serde(default)]
+    pub refinement_expression_operators: Vec<String>,
     pub runtime_observation_dependencies: Vec<String>,
     pub runtime_observation_dependency_digest: String,
 }
@@ -45,6 +63,8 @@ pub struct ArtifactScenario {
     pub fixture_namespace: String,
     pub name: String,
     pub required_capabilities: Vec<String>,
+    #[serde(default)]
+    pub initial_state: Option<Value>,
     pub steps: Vec<ArtifactStep>,
 }
 

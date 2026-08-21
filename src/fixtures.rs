@@ -16,6 +16,36 @@ pub trait QuintFixture {
     fn runtime_value(&self) -> RuntimeValue;
 }
 
+impl QuintFixture for i64 {
+    fn artifact_json(&self) -> Value {
+        Value::from(*self)
+    }
+
+    fn runtime_value(&self) -> RuntimeValue {
+        RuntimeValue::Int(*self)
+    }
+}
+
+impl QuintFixture for String {
+    fn artifact_json(&self) -> Value {
+        Value::String(self.clone())
+    }
+
+    fn runtime_value(&self) -> RuntimeValue {
+        RuntimeValue::Text(self.clone())
+    }
+}
+
+impl QuintFixture for &str {
+    fn artifact_json(&self) -> Value {
+        Value::String((*self).to_owned())
+    }
+
+    fn runtime_value(&self) -> RuntimeValue {
+        RuntimeValue::Text((*self).to_owned())
+    }
+}
+
 /// Named Quint fixtures backed by Rust values, one namespace per model module.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FixtureTable {
@@ -48,12 +78,10 @@ impl FixtureTable {
             .map(QuintFixture::artifact_json)
             .collect::<Vec<_>>();
         json_members.sort_by_key(ToString::to_string);
-        let mut set = BTreeSet::new();
-        for member in members {
-            if let RuntimeValue::Text(value) = member.runtime_value() {
-                set.insert(value);
-            }
-        }
+        let set = members
+            .iter()
+            .map(QuintFixture::runtime_value)
+            .collect::<BTreeSet<_>>();
         self.values.insert(name.to_owned(), RuntimeValue::Set(set));
         self.json
             .insert(name.to_owned(), Value::Array(json_members));
@@ -168,6 +196,14 @@ impl<E: NormalizedRuntimeEvidence> NormalizedRuntimeEvidence for BoundEvidence<'
     }
 }
 
+fn set_json_equal(left: &[Value], right: &[Value]) -> bool {
+    let mut left_sorted = left.to_vec();
+    let mut right_sorted = right.to_vec();
+    left_sorted.sort_by_key(ToString::to_string);
+    right_sorted.sort_by_key(ToString::to_string);
+    left_sorted == right_sorted
+}
+
 pub(crate) fn fixture_json_matches(rust: &Value, artifact: &Value) -> bool {
     if rust == artifact {
         return true;
@@ -176,7 +212,7 @@ pub(crate) fn fixture_json_matches(rust: &Value, artifact: &Value) -> bool {
         (Value::Array(rust_set), Value::Object(artifact_object)) => artifact_object
             .get("#set")
             .and_then(Value::as_array)
-            .is_some_and(|artifact_set| rust_set == artifact_set),
+            .is_some_and(|artifact_set| set_json_equal(rust_set, artifact_set)),
         (Value::Object(rust_object), Value::Object(artifact_object)) => {
             rust_object.iter().all(|(key, value)| {
                 artifact_object

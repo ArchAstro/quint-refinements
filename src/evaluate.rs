@@ -1,20 +1,121 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::Value;
-
 use crate::artifact::{ArtifactAssertion, ArtifactScenario, ArtifactStep, AssertionScope};
 
 /// A normalized Q12 value reconstructed from runtime-owned evidence.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeValue {
     Bool(bool),
     Int(i64),
     Text(String),
-    Set(BTreeSet<String>),
+    Set(BTreeSet<Self>),
     List(Vec<Self>),
+    Tuple(Vec<Self>),
+    Map(BTreeMap<Self, Self>),
     Record(BTreeMap<String, Self>),
+    Variant { tag: String, value: Box<Self> },
     Absent,
     Present(Box<Self>),
+}
+
+impl RuntimeValue {
+    #[must_use]
+    pub fn text_set<I, S>(values: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::Set(
+            values
+                .into_iter()
+                .map(|value| Self::Text(value.into()))
+                .collect(),
+        )
+    }
+
+    /// Decodes Quint's Informal Trace Format value without collapsing maps,
+    /// records, tuples, sets, or variants into one another.
+    pub fn from_itf_json(value: &serde_json::Value) -> Result<Self, String> {
+        match value {
+            serde_json::Value::Bool(value) => Ok(Self::Bool(*value)),
+            serde_json::Value::String(value) => Ok(Self::Text(value.clone())),
+            serde_json::Value::Number(value) => value
+                .as_i64()
+                .map(Self::Int)
+                .ok_or_else(|| format!("ITF number is outside normalized integer range: {value}")),
+            serde_json::Value::Array(values) => values
+                .iter()
+                .map(Self::from_itf_json)
+                .collect::<Result<Vec<_>, _>>()
+                .map(Self::List),
+            serde_json::Value::Object(object) => {
+                if let Some(value) = object.get("#bigint") {
+                    return value
+                        .as_str()
+                        .ok_or_else(|| "ITF #bigint is not text".to_owned())?
+                        .parse::<i64>()
+                        .map(Self::Int)
+                        .map_err(|error| format!("ITF #bigint is outside i64: {error}"));
+                }
+                if let Some(values) = object.get("#tup") {
+                    return decode_itf_values(values, "#tup").map(Self::Tuple);
+                }
+                if let Some(values) = object.get("#set") {
+                    return decode_itf_values(values, "#set")
+                        .map(|values| Self::Set(values.into_iter().collect()));
+                }
+                if let Some(entries) = object.get("#map") {
+                    let entries = entries
+                        .as_array()
+                        .ok_or_else(|| "ITF #map is not an array".to_owned())?;
+                    let mut decoded = BTreeMap::new();
+                    for entry in entries {
+                        let pair = entry
+                            .as_array()
+                            .ok_or_else(|| "ITF #map entry is not an array".to_owned())?;
+                        let [key, value] = pair.as_slice() else {
+                            return Err("ITF #map entry is not a key/value pair".to_owned());
+                        };
+                        decoded.insert(Self::from_itf_json(key)?, Self::from_itf_json(value)?);
+                    }
+                    return Ok(Self::Map(decoded));
+                }
+                if object.len() == 2 && object.contains_key("tag") && object.contains_key("value") {
+                    let tag = object["tag"]
+                        .as_str()
+                        .ok_or_else(|| "ITF variant tag is not text".to_owned())?;
+                    let value = Self::from_itf_json(&object["value"])?;
+                    return match (tag, value) {
+                        ("Absent", _) => Ok(Self::Absent),
+                        ("Present", value) => Ok(Self::Present(Box::new(value))),
+                        (tag, Self::Tuple(values)) if values.is_empty() => {
+                            Ok(Self::Text(tag.to_owned()))
+                        }
+                        (tag, value) => Ok(Self::Variant {
+                            tag: tag.to_owned(),
+                            value: Box::new(value),
+                        }),
+                    };
+                }
+                object
+                    .iter()
+                    .filter(|(key, _)| *key != "#meta" && !key.starts_with("__"))
+                    .map(|(key, value)| Ok((key.clone(), Self::from_itf_json(value)?)))
+                    .collect::<Result<BTreeMap<_, _>, _>>()
+                    .map(Self::Record)
+            }
+            serde_json::Value::Null => Err("ITF null has no Quint runtime value".to_owned()),
+        }
+    }
+}
+
+fn decode_itf_values(value: &serde_json::Value, kind: &str) -> Result<Vec<RuntimeValue>, String> {
+    value
+        .as_array()
+        .ok_or_else(|| format!("ITF {kind} is not an array"))?
+        .iter()
+        .map(RuntimeValue::from_itf_json)
+        .collect()
 }
 
 /// Resolves the domain-specific names and calls used by a Q12 runtime adapter.
@@ -46,11 +147,16 @@ pub fn evaluate_runtime_assertions(
         let ArtifactStep::Observe { assertions, .. } = step else {
             continue;
         };
+        let eval = Eval {
+            current: evidence,
+            before: evidence,
+            after: evidence,
+        };
         evaluated += evaluate_assertions(
             &scenario.id(),
             "observe",
             assertions,
-            evidence,
+            &eval,
             supported_dependencies,
             true,
         )?;
@@ -67,13 +173,13 @@ pub fn evaluate_runtime_assertions(
 ///
 /// Model-scope conjuncts are skipped. Prefer [`evaluate_all_step_obligations`]
 /// once the scenario's Quint names have Rust fixture owners.
-pub fn evaluate_step_obligations(
+pub fn evaluate_step_obligations<E: NormalizedRuntimeEvidence>(
     scenario_id: &str,
     action: &str,
     guards: &[ArtifactAssertion],
     next: &[ArtifactAssertion],
-    before: &impl NormalizedRuntimeEvidence,
-    after: &impl NormalizedRuntimeEvidence,
+    before: &E,
+    after: &E,
     retrieve: &[&str],
 ) -> Result<usize, String> {
     evaluate_step_obligations_inner(
@@ -156,13 +262,13 @@ pub fn evaluate_all_action_steps<E: NormalizedRuntimeEvidence>(
 }
 
 /// Evaluates every guard and next conjunct, including model-scope.
-pub fn evaluate_all_step_obligations(
+pub fn evaluate_all_step_obligations<E: NormalizedRuntimeEvidence>(
     scenario_id: &str,
     action: &str,
     guards: &[ArtifactAssertion],
     next: &[ArtifactAssertion],
-    before: &impl NormalizedRuntimeEvidence,
-    after: &impl NormalizedRuntimeEvidence,
+    before: &E,
+    after: &E,
     retrieve: &[&str],
 ) -> Result<usize, String> {
     evaluate_step_obligations_inner(
@@ -221,13 +327,13 @@ fn evaluate_action_steps<E: NormalizedRuntimeEvidence>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn evaluate_step_obligations_inner(
+fn evaluate_step_obligations_inner<E: NormalizedRuntimeEvidence>(
     scenario_id: &str,
     action: &str,
     guards: &[ArtifactAssertion],
     next: &[ArtifactAssertion],
-    before: &impl NormalizedRuntimeEvidence,
-    after: &impl NormalizedRuntimeEvidence,
+    before: &E,
+    after: &E,
     retrieve: &[&str],
     skip_model: bool,
 ) -> Result<usize, String> {
@@ -236,13 +342,25 @@ fn evaluate_step_obligations_inner(
     }
     let context = format!("{scenario_id}:{action}");
     let mut evaluated = 0;
-    evaluated += evaluate_assertions(&context, "guard", guards, before, retrieve, skip_model)?;
-    let (assigns, other_next): (Vec<_>, Vec<_>) = next
-        .iter()
-        .cloned()
-        .partition(|assertion| is_assign(&assertion.expression));
-    evaluated += evaluate_assertions(&context, "next", &other_next, after, retrieve, skip_model)?;
-    evaluated += evaluate_assigns(&context, &assigns, before, after, retrieve, skip_model)?;
+    let guards_eval = Eval {
+        current: before,
+        before,
+        after,
+    };
+    evaluated += evaluate_assertions(
+        &context,
+        "guard",
+        guards,
+        &guards_eval,
+        retrieve,
+        skip_model,
+    )?;
+    let next_eval = Eval {
+        current: after,
+        before,
+        after,
+    };
+    evaluated += evaluate_assertions(&context, "next", next, &next_eval, retrieve, skip_model)?;
     if evaluated == 0 {
         return Err(format!(
             "{context} declared step obligations but evaluated none"
@@ -251,116 +369,17 @@ fn evaluate_step_obligations_inner(
     Ok(evaluated)
 }
 
-pub(crate) fn operators_are_supported(expression: &serde_json::Value) -> bool {
-    expression_operators(expression)
-        .into_iter()
-        .all(|operator| {
-            matches!(
-                operator.as_str(),
-                "eq" | "neq"
-                    | "not"
-                    | "actionAll"
-                    | "Present"
-                    | "Set"
-                    | "Rec"
-                    | "field"
-                    | "get"
-                    | "contains"
-                    | "length"
-                    | "size"
-                    | "assign"
-                    | "matchVariant"
-                    | "filter"
-            )
-        })
+struct Eval<'a, E: NormalizedRuntimeEvidence> {
+    current: &'a E,
+    before: &'a E,
+    after: &'a E,
 }
 
-fn expression_operators(expression: &serde_json::Value) -> Vec<String> {
-    match expression["kind"].as_str() {
-        Some("call") => {
-            let mut operators = vec![
-                expression["operator"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-            ];
-            if let Some(arguments) = expression.get("arguments").and_then(Value::as_array) {
-                operators.extend(arguments.iter().flat_map(expression_operators));
-            }
-            operators
-        }
-        Some("lambda") => expression
-            .get("body")
-            .map(expression_operators)
-            .unwrap_or_default(),
-        Some("let") => expression
-            .get("value")
-            .into_iter()
-            .chain(expression.get("body"))
-            .flat_map(expression_operators)
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn is_assign(expression: &serde_json::Value) -> bool {
-    expression["kind"].as_str() == Some("call") && expression["operator"].as_str() == Some("assign")
-}
-
-fn evaluate_assigns(
-    context: &str,
-    assertions: &[ArtifactAssertion],
-    before: &impl NormalizedRuntimeEvidence,
-    after: &impl NormalizedRuntimeEvidence,
-    supported_dependencies: &[&str],
-    skip_model: bool,
-) -> Result<usize, String> {
-    let supported = supported_dependencies
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>();
-    let mut evaluated = 0;
-    for assertion in assertions {
-        if skip_model && assertion.scope == AssertionScope::Model {
-            continue;
-        }
-        if let Some(dependency) = assertion
-            .dependencies
-            .iter()
-            .find(|dependency| !dependency_is_supported(dependency, &supported))
-        {
-            return Err(format!(
-                "{context} next uses unsupported runtime dependency {dependency}"
-            ));
-        }
-        let arguments = assertion.expression["arguments"]
-            .as_array()
-            .ok_or_else(|| format!("{context} assign has no arguments"))?;
-        let [left, right] = arguments.as_slice() else {
-            return Err(format!(
-                "{context} assign requires a variable and an expression"
-            ));
-        };
-        // Quint: RHS of x' = e is evaluated in the current state; LHS is the next state.
-        let expected = evaluate_expression(right, before, &BTreeMap::new())?;
-        let observed = evaluate_expression(left, after, &BTreeMap::new())?;
-        if expected == observed {
-            evaluated += 1;
-        } else {
-            return Err(format!(
-                "next assignment evaluated false in {context}: {}",
-                assertion.expression
-            ));
-        }
-    }
-    Ok(evaluated)
-}
-
-fn evaluate_assertions(
+fn evaluate_assertions<E: NormalizedRuntimeEvidence>(
     context: &str,
     kind: &str,
     assertions: &[ArtifactAssertion],
-    evidence: &impl NormalizedRuntimeEvidence,
+    eval: &Eval<'_, E>,
     supported_dependencies: &[&str],
     skip_model: bool,
 ) -> Result<usize, String> {
@@ -382,7 +401,9 @@ fn evaluate_assertions(
                 "{context} {kind} uses unsupported runtime dependency {dependency}"
             ));
         }
-        match evaluate_expression(&assertion.expression, evidence, &BTreeMap::new())? {
+        let value = evaluate_expression(&assertion.expression, eval, &BTreeMap::new())
+            .map_err(|error| format!("{context} {kind}: {error}"))?;
+        match value {
             RuntimeValue::Bool(true) => evaluated += 1,
             RuntimeValue::Bool(false) => {
                 return Err(format!(
@@ -415,9 +436,9 @@ fn dependency_is_supported(dependency: &str, supported: &BTreeSet<&str>) -> bool
     ) || supported.contains(dependency)
 }
 
-fn evaluate_expression(
+fn evaluate_expression<E: NormalizedRuntimeEvidence>(
     expression: &serde_json::Value,
-    evidence: &impl NormalizedRuntimeEvidence,
+    eval: &Eval<'_, E>,
     environment: &BTreeMap<String, RuntimeValue>,
 ) -> Result<RuntimeValue, String> {
     match expression["kind"].as_str() {
@@ -437,34 +458,41 @@ fn evaluate_expression(
             let name = expression["value"]
                 .as_str()
                 .ok_or_else(|| "normalized name has no value".to_owned())?;
-            environment
-                .get(name)
-                .cloned()
-                .map_or_else(|| evidence.resolve_name(name), Ok)
+            if let Some(value) = environment.get(name) {
+                return Ok(value.clone());
+            }
+            match name {
+                "disabled" => Ok(RuntimeValue::Bool(false)),
+                "Absent" => Ok(eval
+                    .current
+                    .resolve_name(name)
+                    .unwrap_or(RuntimeValue::Absent)),
+                _ => eval.current.resolve_name(name),
+            }
         }
-        Some("call") => evaluate_call(expression, evidence, environment),
-        Some("let") => evaluate_let(expression, evidence, environment),
+        Some("call") => evaluate_call(expression, eval, environment),
+        Some("let") => evaluate_let(expression, eval, environment),
         _ => Err("unsupported normalized expression kind".to_owned()),
     }
 }
 
-fn evaluate_let(
+fn evaluate_let<E: NormalizedRuntimeEvidence>(
     expression: &serde_json::Value,
-    evidence: &impl NormalizedRuntimeEvidence,
+    eval: &Eval<'_, E>,
     environment: &BTreeMap<String, RuntimeValue>,
 ) -> Result<RuntimeValue, String> {
     let name = expression["name"]
         .as_str()
         .ok_or_else(|| "normalized let has no name".to_owned())?;
-    let value = evaluate_expression(&expression["value"], evidence, environment)?;
+    let value = evaluate_expression(&expression["value"], eval, environment)?;
     let mut nested = environment.clone();
     nested.insert(name.to_owned(), value);
-    evaluate_expression(&expression["body"], evidence, &nested)
+    evaluate_expression(&expression["body"], eval, &nested)
 }
 
-fn evaluate_call(
+fn evaluate_call<E: NormalizedRuntimeEvidence>(
     expression: &serde_json::Value,
-    evidence: &impl NormalizedRuntimeEvidence,
+    eval: &Eval<'_, E>,
     environment: &BTreeMap<String, RuntimeValue>,
 ) -> Result<RuntimeValue, String> {
     let operator = expression["operator"]
@@ -473,15 +501,58 @@ fn evaluate_call(
     let arguments = expression["arguments"]
         .as_array()
         .ok_or_else(|| "normalized call has no arguments".to_owned())?;
+    if operator == "assign" {
+        let [left, right] = arguments.as_slice() else {
+            return Err("assign requires a variable and an expression".to_owned());
+        };
+        let expected = evaluate_expression(
+            right,
+            &Eval {
+                current: eval.before,
+                before: eval.before,
+                after: eval.after,
+            },
+            environment,
+        )?;
+        let observed = evaluate_expression(
+            left,
+            &Eval {
+                current: eval.after,
+                before: eval.before,
+                after: eval.after,
+            },
+            environment,
+        )?;
+        if structurally_equal(&expected, &observed) {
+            return Ok(RuntimeValue::Bool(true));
+        }
+        return Err(format!(
+            "assign state diverged at {}",
+            structural_difference(&expected, &observed, "state")
+                .unwrap_or_else(|| "state".to_owned())
+        ));
+    }
     if operator == "matchVariant" {
-        return evaluate_match_variant(arguments, evidence, environment);
+        return evaluate_match_variant(arguments, eval, environment);
     }
     if operator == "filter" {
-        return evaluate_filter(arguments, evidence, environment);
+        return evaluate_filter(arguments, eval, environment);
+    }
+    if operator == "map" || operator == "mapBy" {
+        return evaluate_map(operator, arguments, eval, environment);
+    }
+    if operator == "fold" {
+        return evaluate_fold(arguments, eval, environment);
+    }
+    if operator == "forall" || operator == "exists" {
+        return evaluate_quantifier(operator, arguments, eval, environment);
+    }
+    if operator == "ite" {
+        return evaluate_ite(arguments, eval, environment);
     }
     let values = arguments
         .iter()
-        .map(|argument| evaluate_expression(argument, evidence, environment))
+        .map(|argument| evaluate_expression(argument, eval, environment))
         .collect::<Result<Vec<_>, _>>()?;
 
     let common = match (operator, values.as_slice()) {
@@ -498,17 +569,25 @@ fn evaluate_call(
                 .collect::<Result<Vec<_>, _>>()
                 .map(|values| RuntimeValue::Bool(values.into_iter().all(|value| value))),
         ),
-        ("Present", [value]) => Some(Ok(RuntimeValue::Present(Box::new(value.clone())))),
-        ("Set", values) => Some(
+        ("actionAny", values) => Some(
             values
                 .iter()
                 .map(|value| match value {
-                    RuntimeValue::Text(value) => Ok(value.clone()),
-                    _ => Err("Set accepts only normalized text".to_owned()),
+                    RuntimeValue::Bool(value) => Ok(*value),
+                    _ => Err("actionAny accepts only normalized booleans".to_owned()),
                 })
-                .collect::<Result<BTreeSet<_>, _>>()
-                .map(RuntimeValue::Set),
+                .collect::<Result<Vec<_>, _>>()
+                .map(|values| RuntimeValue::Bool(values.into_iter().any(|value| value))),
         ),
+        ("Present", [value]) => Some(Ok(RuntimeValue::Present(Box::new(value.clone())))),
+        ("variant", [RuntimeValue::Text(tag), value]) => Some(Ok(RuntimeValue::Variant {
+            tag: tag.clone(),
+            value: Box::new(value.clone()),
+        })),
+        ("List", values) => Some(Ok(RuntimeValue::List(values.to_vec()))),
+        ("Tup", values) => Some(Ok(RuntimeValue::Tuple(values.to_vec()))),
+        ("Set", values) => Some(Ok(RuntimeValue::Set(values.iter().cloned().collect()))),
+        ("Map", values) => Some(map_from_values(values)),
         ("Rec", values) => Some(record_from_values(values)),
         ("field", [RuntimeValue::Record(fields), RuntimeValue::Text(key)]) => Some(
             fields
@@ -519,78 +598,385 @@ fn evaluate_call(
         ("get", [RuntimeValue::Record(fields), RuntimeValue::Text(key)]) => {
             Some(Ok(fields.get(key).cloned().unwrap_or(RuntimeValue::Absent)))
         }
-        ("contains", [RuntimeValue::Set(values), RuntimeValue::Text(value)]) => {
+        ("get", [RuntimeValue::Map(entries), key]) => Some(Ok(entries
+            .get(key)
+            .cloned()
+            .ok_or_else(|| format!("map has no key {key:?}"))?)),
+        ("contains", [RuntimeValue::Set(values), value]) => {
             Some(Ok(RuntimeValue::Bool(values.contains(value))))
         }
         ("length", [RuntimeValue::List(values)]) => {
             Some(Ok(RuntimeValue::Int(values.len() as i64)))
         }
         ("size", [RuntimeValue::List(values)]) => Some(Ok(RuntimeValue::Int(values.len() as i64))),
+        ("size", [RuntimeValue::Tuple(values)]) => Some(Ok(RuntimeValue::Int(values.len() as i64))),
         ("size", [RuntimeValue::Set(values)]) => Some(Ok(RuntimeValue::Int(values.len() as i64))),
+        ("size", [RuntimeValue::Map(values)]) => Some(Ok(RuntimeValue::Int(values.len() as i64))),
         ("size", [RuntimeValue::Record(values)]) => {
             Some(Ok(RuntimeValue::Int(values.len() as i64)))
+        }
+        ("and", values) => Some(
+            values
+                .iter()
+                .map(|value| match value {
+                    RuntimeValue::Bool(value) => Ok(*value),
+                    _ => Err("and accepts only normalized booleans".to_owned()),
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(|values| RuntimeValue::Bool(values.into_iter().all(|value| value))),
+        ),
+        ("or", values) => Some(
+            values
+                .iter()
+                .map(|value| match value {
+                    RuntimeValue::Bool(value) => Ok(*value),
+                    _ => Err("or accepts only normalized booleans".to_owned()),
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(|values| RuntimeValue::Bool(values.into_iter().any(|value| value))),
+        ),
+        ("with", [RuntimeValue::Record(fields), RuntimeValue::Text(key), value]) => {
+            let mut updated = fields.clone();
+            updated.insert(key.clone(), value.clone());
+            Some(Ok(RuntimeValue::Record(updated)))
+        }
+        ("set", [RuntimeValue::Record(fields), RuntimeValue::Text(key), value]) => {
+            let mut updated = fields.clone();
+            updated.insert(key.clone(), value.clone());
+            Some(Ok(RuntimeValue::Record(updated)))
+        }
+        ("set", [RuntimeValue::Map(entries), key, value]) => {
+            if !entries.contains_key(key) {
+                return Err(format!("set cannot add missing map key {key:?}"));
+            }
+            let mut updated = entries.clone();
+            updated.insert(key.clone(), value.clone());
+            Some(Ok(RuntimeValue::Map(updated)))
+        }
+        ("put", [RuntimeValue::Map(entries), key, value]) => {
+            let mut updated = entries.clone();
+            updated.insert(key.clone(), value.clone());
+            Some(Ok(RuntimeValue::Map(updated)))
+        }
+        ("union", [RuntimeValue::Set(left), RuntimeValue::Set(right)]) => {
+            Some(Ok(RuntimeValue::Set(left.union(right).cloned().collect())))
+        }
+        ("exclude", [RuntimeValue::Set(left), RuntimeValue::Set(right)]) => Some(Ok(
+            RuntimeValue::Set(left.difference(right).cloned().collect()),
+        )),
+        ("ilt", [RuntimeValue::Int(left), RuntimeValue::Int(right)]) => {
+            Some(Ok(RuntimeValue::Bool(left < right)))
+        }
+        ("igt", [RuntimeValue::Int(left), RuntimeValue::Int(right)]) => {
+            Some(Ok(RuntimeValue::Bool(left > right)))
+        }
+        ("ilte", [RuntimeValue::Int(left), RuntimeValue::Int(right)]) => {
+            Some(Ok(RuntimeValue::Bool(left <= right)))
+        }
+        ("igte", [RuntimeValue::Int(left), RuntimeValue::Int(right)]) => {
+            Some(Ok(RuntimeValue::Bool(left >= right)))
+        }
+        ("iadd", [RuntimeValue::Int(left), RuntimeValue::Int(right)]) => {
+            Some(Ok(RuntimeValue::Int(left + right)))
+        }
+        ("isub", [RuntimeValue::Int(left), RuntimeValue::Int(right)]) => {
+            Some(Ok(RuntimeValue::Int(left - right)))
+        }
+        ("append", [RuntimeValue::List(values), value]) => {
+            let mut appended = values.clone();
+            appended.push(value.clone());
+            Some(Ok(RuntimeValue::List(appended)))
+        }
+        ("concat", [RuntimeValue::List(left), RuntimeValue::List(right)]) => {
+            let mut concatenated = left.clone();
+            concatenated.extend(right.iter().cloned());
+            Some(Ok(RuntimeValue::List(concatenated)))
+        }
+        ("indices", [RuntimeValue::List(values)]) => Some(
+            values
+                .iter()
+                .enumerate()
+                .map(|(index, _)| {
+                    i64::try_from(index)
+                        .map(RuntimeValue::Int)
+                        .map_err(|_| "list index exceeds normalized integer range".to_owned())
+                })
+                .collect::<Result<BTreeSet<_>, _>>()
+                .map(RuntimeValue::Set),
+        ),
+        ("nth", [RuntimeValue::List(values), RuntimeValue::Int(index)]) => Some(
+            usize::try_from(*index)
+                .ok()
+                .and_then(|index| values.get(index).cloned())
+                .ok_or_else(|| format!("list index {index} is out of bounds")),
+        ),
+        ("keys", [RuntimeValue::Map(entries)]) => {
+            Some(Ok(RuntimeValue::Set(entries.keys().cloned().collect())))
         }
         _ => None,
     };
 
     common
-        .or_else(|| evidence.resolve_call(operator, &values))
-        .unwrap_or_else(|| Err(format!("unsupported runtime operator {operator}")))
+        .or_else(|| eval.current.resolve_call(operator, &values))
+        .unwrap_or_else(|| {
+            Err(format!(
+                "unsupported runtime operator {operator} for {values:?}"
+            ))
+        })
 }
 
-fn evaluate_filter(
+fn structurally_equal(expected: &RuntimeValue, observed: &RuntimeValue) -> bool {
+    structural_difference(expected, observed, "state").is_none()
+}
+
+fn structural_difference(
+    expected: &RuntimeValue,
+    observed: &RuntimeValue,
+    path: &str,
+) -> Option<String> {
+    match (expected, observed) {
+        (RuntimeValue::Record(expected_fields), RuntimeValue::Record(observed_fields)) => {
+            if expected_fields.len() != observed_fields.len() {
+                let missing = expected_fields
+                    .keys()
+                    .filter(|key| !observed_fields.contains_key(*key))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let unexpected = observed_fields
+                    .keys()
+                    .filter(|key| !expected_fields.contains_key(*key))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                return Some(format!(
+                    "{path} record fields differ; missing {missing:?}, unexpected {unexpected:?}"
+                ));
+            }
+            for (key, expected_value) in expected_fields {
+                let nested_path = format!("{path}.{key}");
+                let Some(observed_value) = observed_fields.get(key) else {
+                    return Some(format!("{nested_path} missing from observed state"));
+                };
+                if let Some(difference) =
+                    structural_difference(expected_value, observed_value, &nested_path)
+                {
+                    return Some(difference);
+                }
+            }
+            None
+        }
+        (RuntimeValue::Present(expected_value), RuntimeValue::Present(observed_value)) => {
+            structural_difference(expected_value, observed_value, path)
+        }
+        (RuntimeValue::List(expected_values), RuntimeValue::List(observed_values)) => {
+            if expected_values.len() != observed_values.len() {
+                return Some(format!(
+                    "{path} expected list length {}, observed {}",
+                    expected_values.len(),
+                    observed_values.len()
+                ));
+            }
+            for (index, (expected_value, observed_value)) in
+                expected_values.iter().zip(observed_values).enumerate()
+            {
+                if let Some(difference) = structural_difference(
+                    expected_value,
+                    observed_value,
+                    &format!("{path}[{index}]"),
+                ) {
+                    return Some(difference);
+                }
+            }
+            None
+        }
+        _ if expected == observed => None,
+        _ => Some(format!(
+            "{path} expected {expected:?}, observed {observed:?}"
+        )),
+    }
+}
+
+fn evaluate_ite<E: NormalizedRuntimeEvidence>(
     arguments: &[serde_json::Value],
-    evidence: &impl NormalizedRuntimeEvidence,
+    eval: &Eval<'_, E>,
+    environment: &BTreeMap<String, RuntimeValue>,
+) -> Result<RuntimeValue, String> {
+    let [condition, when_true, when_false] = arguments else {
+        return Err("ite requires a condition and two branches".to_owned());
+    };
+    match evaluate_expression(condition, eval, environment)? {
+        RuntimeValue::Bool(true) => evaluate_expression(when_true, eval, environment),
+        RuntimeValue::Bool(false) => evaluate_expression(when_false, eval, environment),
+        _ => Err("ite condition is not boolean".to_owned()),
+    }
+}
+
+fn evaluate_quantifier<E: NormalizedRuntimeEvidence>(
+    operator: &str,
+    arguments: &[serde_json::Value],
+    eval: &Eval<'_, E>,
     environment: &BTreeMap<String, RuntimeValue>,
 ) -> Result<RuntimeValue, String> {
     let [values, lambda] = arguments else {
-        return Err("filter requires a list and one lambda".to_owned());
+        return Err(format!("{operator} requires a collection and one lambda"));
     };
-    let RuntimeValue::List(values) = evaluate_expression(values, evidence, environment)? else {
-        return Err("filter input is not a list".to_owned());
+    let items = match evaluate_expression(values, eval, environment)? {
+        RuntimeValue::Set(values) => values.into_iter().collect(),
+        RuntimeValue::List(values) => values,
+        RuntimeValue::Tuple(values) => values,
+        RuntimeValue::Map(entries) => entries.into_values().collect(),
+        RuntimeValue::Record(fields) => fields.into_values().collect(),
+        _ => return Err(format!("{operator} input is not a collection")),
     };
     if lambda["kind"].as_str() != Some("lambda") {
-        return Err("filter predicate is not a lambda".to_owned());
+        return Err(format!("{operator} predicate is not a lambda"));
     }
     let parameter = lambda["parameters"]
         .as_array()
         .and_then(|parameters| parameters.first())
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "filter lambda has no parameter".to_owned())?;
+        .ok_or_else(|| format!("{operator} lambda has no parameter"))?;
     let body = &lambda["body"];
-    let mut filtered = Vec::new();
-    for value in values {
+    let mut results = Vec::new();
+    for value in items {
         let mut nested = environment.clone();
-        nested.insert(parameter.to_owned(), value.clone());
-        match evaluate_expression(body, evidence, &nested)? {
+        nested.insert(parameter.to_owned(), value);
+        match evaluate_expression(body, eval, &nested)? {
+            RuntimeValue::Bool(value) => results.push(value),
+            _ => return Err(format!("{operator} predicate did not evaluate to boolean")),
+        }
+    }
+    Ok(RuntimeValue::Bool(if operator == "forall" {
+        results.into_iter().all(|value| value)
+    } else {
+        results.into_iter().any(|value| value)
+    }))
+}
+
+fn evaluate_filter<E: NormalizedRuntimeEvidence>(
+    arguments: &[serde_json::Value],
+    eval: &Eval<'_, E>,
+    environment: &BTreeMap<String, RuntimeValue>,
+) -> Result<RuntimeValue, String> {
+    let [values, lambda] = arguments else {
+        return Err("filter requires a list and one lambda".to_owned());
+    };
+    let values = evaluate_expression(values, eval, environment)?;
+    let (items, is_set) = match values {
+        RuntimeValue::List(values) => (values, false),
+        RuntimeValue::Set(values) => (values.into_iter().collect(), true),
+        _ => return Err("filter input is not a list or set".to_owned()),
+    };
+    let mut filtered = Vec::new();
+    for value in items {
+        match evaluate_lambda(lambda, &[value.clone()], eval, environment)? {
             RuntimeValue::Bool(true) => filtered.push(value),
             RuntimeValue::Bool(false) => {}
             _ => return Err("filter predicate did not evaluate to boolean".to_owned()),
         }
     }
-    Ok(RuntimeValue::List(filtered))
+    if is_set {
+        Ok(RuntimeValue::Set(filtered.into_iter().collect()))
+    } else {
+        Ok(RuntimeValue::List(filtered))
+    }
 }
 
-fn evaluate_match_variant(
+fn evaluate_map<E: NormalizedRuntimeEvidence>(
+    operator: &str,
     arguments: &[serde_json::Value],
-    evidence: &impl NormalizedRuntimeEvidence,
+    eval: &Eval<'_, E>,
+    environment: &BTreeMap<String, RuntimeValue>,
+) -> Result<RuntimeValue, String> {
+    let [values, lambda] = arguments else {
+        return Err(format!("{operator} requires a set and one lambda"));
+    };
+    let RuntimeValue::Set(values) = evaluate_expression(values, eval, environment)? else {
+        return Err(format!("{operator} input is not a set"));
+    };
+    if operator == "map" {
+        return values
+            .into_iter()
+            .map(|value| evaluate_lambda(lambda, &[value], eval, environment))
+            .collect::<Result<BTreeSet<_>, _>>()
+            .map(RuntimeValue::Set);
+    }
+    values
+        .into_iter()
+        .map(|key| {
+            let value = evaluate_lambda(lambda, std::slice::from_ref(&key), eval, environment)?;
+            Ok((key, value))
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()
+        .map(RuntimeValue::Map)
+}
+
+fn evaluate_fold<E: NormalizedRuntimeEvidence>(
+    arguments: &[serde_json::Value],
+    eval: &Eval<'_, E>,
+    environment: &BTreeMap<String, RuntimeValue>,
+) -> Result<RuntimeValue, String> {
+    let [values, initial, lambda] = arguments else {
+        return Err("fold requires a set, initial value, and lambda".to_owned());
+    };
+    let RuntimeValue::Set(values) = evaluate_expression(values, eval, environment)? else {
+        return Err("fold input is not a set".to_owned());
+    };
+    let mut accumulator = evaluate_expression(initial, eval, environment)?;
+    for value in values {
+        accumulator = evaluate_lambda(lambda, &[accumulator, value], eval, environment)?;
+    }
+    Ok(accumulator)
+}
+
+fn evaluate_lambda<E: NormalizedRuntimeEvidence>(
+    lambda: &serde_json::Value,
+    arguments: &[RuntimeValue],
+    eval: &Eval<'_, E>,
+    environment: &BTreeMap<String, RuntimeValue>,
+) -> Result<RuntimeValue, String> {
+    if lambda["kind"].as_str() != Some("lambda") {
+        return Err("expected a normalized lambda".to_owned());
+    }
+    let parameters = lambda["parameters"]
+        .as_array()
+        .ok_or_else(|| "normalized lambda has no parameters".to_owned())?;
+    if parameters.len() != arguments.len() {
+        return Err(format!(
+            "lambda expects {} arguments, received {}",
+            parameters.len(),
+            arguments.len()
+        ));
+    }
+    let mut nested = environment.clone();
+    for (parameter, value) in parameters.iter().zip(arguments) {
+        let name = parameter
+            .as_str()
+            .ok_or_else(|| "normalized lambda parameter is not a name".to_owned())?;
+        nested.insert(name.to_owned(), value.clone());
+    }
+    evaluate_expression(&lambda["body"], eval, &nested)
+}
+
+fn evaluate_match_variant<E: NormalizedRuntimeEvidence>(
+    arguments: &[serde_json::Value],
+    eval: &Eval<'_, E>,
     environment: &BTreeMap<String, RuntimeValue>,
 ) -> Result<RuntimeValue, String> {
     let variant = evaluate_expression(
         arguments
             .first()
             .ok_or_else(|| "matchVariant has no value".to_owned())?,
-        evidence,
+        eval,
         environment,
     )?;
     let (tag, value) = match variant {
-        RuntimeValue::Absent => ("Absent", None),
-        RuntimeValue::Present(value) => ("Present", Some(*value)),
+        RuntimeValue::Absent => ("Absent".to_owned(), None),
+        RuntimeValue::Present(value) => ("Present".to_owned(), Some(*value)),
+        RuntimeValue::Variant { tag, value } => (tag, Some(*value)),
         _ => return Err("matchVariant value is not optional".to_owned()),
     };
     for branch in arguments[1..].chunks_exact(2) {
-        let RuntimeValue::Text(branch_tag) =
-            evaluate_expression(&branch[0], evidence, environment)?
+        let RuntimeValue::Text(branch_tag) = evaluate_expression(&branch[0], eval, environment)?
         else {
             return Err("matchVariant tag is not text".to_owned());
         };
@@ -610,7 +996,7 @@ fn evaluate_match_variant(
         if let Some(value) = value {
             branch_environment.insert(parameter.to_owned(), value);
         }
-        return evaluate_expression(&lambda["body"], evidence, &branch_environment);
+        return evaluate_expression(&lambda["body"], eval, &branch_environment);
     }
     Err("matchVariant has no matching branch".to_owned())
 }
@@ -627,4 +1013,18 @@ fn record_from_values(values: &[RuntimeValue]) -> Result<RuntimeValue, String> {
         fields.insert(key.clone(), pair[1].clone());
     }
     Ok(RuntimeValue::Record(fields))
+}
+
+fn map_from_values(values: &[RuntimeValue]) -> Result<RuntimeValue, String> {
+    let mut entries = BTreeMap::new();
+    for value in values {
+        let RuntimeValue::Tuple(pair) = value else {
+            return Err("Map accepts only key/value tuples".to_owned());
+        };
+        let [key, value] = pair.as_slice() else {
+            return Err("Map entries must contain exactly two values".to_owned());
+        };
+        entries.insert(key.clone(), value.clone());
+    }
+    Ok(RuntimeValue::Map(entries))
 }
