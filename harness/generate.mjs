@@ -1279,8 +1279,14 @@ function compileScenario(quint, specDir, descriptor, outputPath) {
       stdio: ["ignore", "ignore", "pipe"],
     },
   );
+  if (result.error) {
+    throw new Error(`Quint compile could not start for ${source}: ${result.error.message}`);
+  }
   if (result.status !== 0) {
-    throw new Error(`Quint compile failed for ${source}:\n${result.stderr ?? ""}`);
+    throw new Error(
+      `Quint compile failed for ${source} with status ${result.status}`
+      + `${result.signal ? ` and signal ${result.signal}` : ""}:\n${result.stderr ?? ""}`,
+    );
   }
   const compiled = JSON.parse(fs.readFileSync(outputPath, "utf8"));
   const module = compiled.modules.find(candidate => candidate.name === moduleName);
