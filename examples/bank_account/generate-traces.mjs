@@ -31,4 +31,3 @@ if (check) {
   fs.writeFileSync(outputPath, generated);
   console.log("wrote traces.json");
 }
-

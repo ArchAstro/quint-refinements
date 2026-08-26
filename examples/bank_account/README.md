@@ -21,4 +21,3 @@ bank.qnt withdraw(4)
 ```
 
 `npm run check` fails when `traces.json` no longer matches `bank.qnt`.
-
