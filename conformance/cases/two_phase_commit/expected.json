@@ -1,0 +1,21 @@
+{
+  "scenario": "two_phase_commit.commitRun",
+  "primitiveCalls": [
+    {
+      "primitive": "postgres.txn.begin",
+      "actions": ["begin"],
+      "arguments": []
+    },
+    {
+      "primitive": "postgres.txn.commit",
+      "actions": ["prepare", "flushWal", "commitPrepared"],
+      "arguments": []
+    }
+  ],
+  "evaluatedObligations": 14,
+  "finalState": {
+    "status": "Committed",
+    "flushed": true,
+    "wal": ["prepare", "commit"]
+  }
+}

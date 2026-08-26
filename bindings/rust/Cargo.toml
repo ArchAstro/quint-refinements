@@ -12,20 +12,14 @@ keywords = ["quint", "refinement", "formal-methods", "testing"]
 categories = ["development-tools::testing"]
 include = [
     "/src/**",
-    "/harness/**",
-    "/docs/**",
-    "/examples/**",
+    "/examples/*.rs",
+    "/examples/two_phase_commit/coordinator.rs",
+    "/examples/two_phase_commit/traces.json",
     "/tests/**",
     "/expression_vocabulary.json",
-    "/package.json",
-    "/package-lock.json",
     "/Cargo.toml",
-    "/Cargo.lock",
     "/README.md",
     "/LICENSE",
-    "/CHANGELOG.md",
-    "/CONTRIBUTING.md",
-    "/RELEASING.md",
 ]
 
 [dependencies]

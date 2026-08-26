@@ -6,9 +6,33 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+export function resolveQuintBinary(root) {
+  const binary = process.platform === "win32" ? "quint.cmd" : "quint";
+  const workspaceBinary = path.join(root, "node_modules", ".bin", binary);
+  if (fs.existsSync(workspaceBinary)) {
+    return workspaceBinary;
+  }
+
+  const packageManifest = require.resolve("@informalsystems/quint/package.json");
+  const dependencyBinary = path.resolve(
+    path.dirname(packageManifest),
+    "..",
+    "..",
+    ".bin",
+    binary,
+  );
+  if (!fs.existsSync(dependencyBinary)) {
+    throw new Error("could not resolve the Quint executable from @informalsystems/quint");
+  }
+  return dependencyBinary;
+}
 
 export const supportedNormalizedExpressionOperators = JSON.parse(
-  fs.readFileSync(new URL("../expression_vocabulary.json", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("./expression_vocabulary.json", import.meta.url), "utf8"),
 );
 const supportedNormalizedExpressionOperatorSet = new Set(
   supportedNormalizedExpressionOperators,
@@ -332,15 +356,20 @@ function isStateSelfAssignment(node) {
     node.args[1].name === "state";
 }
 
-function encodeObservation(node, context, app) {
+function encodeObservation(node, context, app, defs, deepInline, fixtureNames) {
   const assertions = [];
   let stateAssignmentCount = 0;
 
   for (const member of node.args) {
     if (member.kind === "app" && member.opcode === "assert" && member.args.length === 1) {
-      const scope = expressionIsModelOnly(member.args[0], app) ? "model" : "runtime";
+      const expressionNode = deepInline
+        ? inlineExpr(member.args[0], defs, new Set(), context, true)
+        : member.args[0];
+      collectUniverseFixtureNames(expressionNode, fixtureNames);
+      collectNamedFixtures(expressionNode, fixtureNames, defs);
+      const scope = expressionIsModelOnly(expressionNode, app) ? "model" : "runtime";
       const expression = encodeExpression(
-        member.args[0],
+        expressionNode,
         `${context}.assert[${assertions.length}]`,
         new Set(),
         app,
@@ -1196,7 +1225,7 @@ export function extractRun(
     const context = `${source}:${declaration.name}:step ${index + 1}`;
     steps.push(
       node.kind === "app" && node.opcode === "actionAll"
-        ? encodeObservation(node, context, app)
+        ? encodeObservation(node, context, app, actionDefs, deepInline, fixtureNames)
         : encodeAction(
             node,
             context,
@@ -1500,7 +1529,7 @@ export function generateConformanceTraces({
   fullyRefinedRuns = new Set(),
   app = defaultAppConfig,
 }) {
-  const quint = path.join(root, "node_modules/.bin/quint");
+  const quint = resolveQuintBinary(root);
   const sources = app.sources(specDir);
   validateAppSources(app, sources);
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "quint-conformance-"));
@@ -1521,7 +1550,11 @@ export function generateConformanceTraces({
       const actionDefs = indexDefinitions(modules, table);
       const fixtureNames = new Set();
       for (const declaration of module.declarations) {
-        if (declaration.kind === "def" && declaration.qualifier === "run") {
+        if (
+          declaration.kind === "def"
+          && declaration.qualifier === "run"
+          && (declaration.doc ?? "").includes("@conformance")
+        ) {
           scenarios.push(
             extractRun(
               declaration,

@@ -7,9 +7,10 @@
 ## Verification
 
 - [ ] `npm run check:traces`
-- [ ] `cargo test --locked --all-targets`
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy --locked --all-targets -- -D warnings`
+- [ ] `npm run test:compiler`
+- [ ] `cargo test --locked --manifest-path bindings/rust/Cargo.toml --all-targets`
+- [ ] `cargo fmt --manifest-path bindings/rust/Cargo.toml -- --check`
+- [ ] `cargo clippy --locked --manifest-path bindings/rust/Cargo.toml --all-targets -- -D warnings`
 
 ## Risk and compatibility
 

@@ -1,7 +1,7 @@
 import {
   createItfActionNextHook,
   defineConformanceApp,
-} from "../../harness/generate.mjs";
+} from "../../../../packages/compiler/generate.mjs";
 
 const retrieve = new Set([
   "name:state",

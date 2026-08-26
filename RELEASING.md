@@ -1,11 +1,11 @@
 # Releasing
 
 1. Confirm CI passes on `main`.
-2. Update `CHANGELOG.md` and the version in `Cargo.toml`.
-3. Run `npm ci`, `npm run check:traces`, and `cargo test --locked --all-targets`.
-4. Run `cargo package --locked` and test the packaged crate.
-5. Run `cargo publish --dry-run --locked`.
-6. Publish only after the crates.io owner and repository settings are configured.
-7. Tag the published commit as `v<version>` and create release notes from the changelog.
+2. Update `CHANGELOG.md` and the package being released: root `package.json` or `bindings/rust/Cargo.toml`.
+3. Run `npm ci`, `npm test`, and `cargo test --locked --manifest-path bindings/rust/Cargo.toml --all-targets`.
+4. Run `npm pack --dry-run` for the compiler or `cargo package --locked --manifest-path bindings/rust/Cargo.toml` for Rust.
+5. Run the relevant registry dry run.
+6. Publish only after the target registry's owners and repository settings are configured.
+7. Tag compiler releases as `compiler-v<version>` and Rust releases as `rust-v<version>`.
 
-Publishing is deliberately manual until crates.io trusted publishing is configured for this repository.
+Publishing is deliberately manual until trusted publishing is configured for each registry.

@@ -1,0 +1,265 @@
+{
+  "schemaVersion": 2,
+  "modelDigest": "sha256:496bb41ebe658af11b52eecb97924736402d92da78c72018904dedca23f4f32a",
+  "vocabulary": {
+    "actions": [
+      "withdraw"
+    ],
+    "capabilities": [
+      "bank.withdraw"
+    ],
+    "expressionOperators": [
+      "Rec",
+      "eq",
+      "field",
+      "igt",
+      "igte",
+      "isub"
+    ],
+    "expressionNames": [
+      "state"
+    ],
+    "refinementExpressionOperators": [
+      "List",
+      "Map",
+      "Present",
+      "Rec",
+      "Set",
+      "Tup",
+      "actionAll",
+      "actionAny",
+      "and",
+      "append",
+      "assign",
+      "concat",
+      "contains",
+      "eq",
+      "exclude",
+      "exists",
+      "field",
+      "filter",
+      "fold",
+      "forall",
+      "get",
+      "iadd",
+      "igt",
+      "igte",
+      "ilt",
+      "ilte",
+      "indices",
+      "isub",
+      "ite",
+      "keys",
+      "length",
+      "map",
+      "mapBy",
+      "matchVariant",
+      "neq",
+      "not",
+      "nth",
+      "or",
+      "put",
+      "set",
+      "size",
+      "union",
+      "variant",
+      "with"
+    ],
+    "runtimeObservationDependencies": [
+      "name:state",
+      "operator:eq",
+      "operator:field",
+      "path:state.balance"
+    ],
+    "runtimeObservationDependencyDigest": "sha256:54f2836ccff5e30c0e7a95fc7b7c711d1c4e567d4dd05074d6aa31776ed268cc"
+  },
+  "fixtures": {
+    "bank": {}
+  },
+  "scenarios": [
+    {
+      "source": "bank.qnt",
+      "module": "bank",
+      "fixtureNamespace": "bank",
+      "name": "withdrawRun",
+      "requiredCapabilities": [
+        "bank.withdraw"
+      ],
+      "steps": [
+        {
+          "index": 0,
+          "kind": "init",
+          "action": "init",
+          "arguments": []
+        },
+        {
+          "index": 1,
+          "kind": "action",
+          "action": "withdraw",
+          "arguments": [
+            {
+              "kind": "int",
+              "value": 4
+            }
+          ],
+          "guards": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "igt",
+                "arguments": [
+                  {
+                    "kind": "int",
+                    "value": 4
+                  },
+                  {
+                    "kind": "int",
+                    "value": 0
+                  }
+                ]
+              },
+              "dependencies": [
+                "operator:igt"
+              ]
+            },
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "igte",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "balance"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "int",
+                    "value": 4
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "operator:field",
+                "operator:igte",
+                "path:state.balance"
+              ]
+            }
+          ],
+          "next": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "assign",
+                "arguments": [
+                  {
+                    "kind": "name",
+                    "value": "state"
+                  },
+                  {
+                    "kind": "call",
+                    "operator": "Rec",
+                    "arguments": [
+                      {
+                        "kind": "str",
+                        "value": "balance"
+                      },
+                      {
+                        "kind": "call",
+                        "operator": "isub",
+                        "arguments": [
+                          {
+                            "kind": "call",
+                            "operator": "field",
+                            "arguments": [
+                              {
+                                "kind": "name",
+                                "value": "state"
+                              },
+                              {
+                                "kind": "str",
+                                "value": "balance"
+                              }
+                            ]
+                          },
+                          {
+                            "kind": "int",
+                            "value": 4
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "operator:Rec",
+                "operator:assign",
+                "operator:field",
+                "operator:isub",
+                "path:state.balance"
+              ]
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "kind": "observe",
+          "assertions": [
+            {
+              "scope": "runtime",
+              "expression": {
+                "kind": "call",
+                "operator": "eq",
+                "arguments": [
+                  {
+                    "kind": "call",
+                    "operator": "field",
+                    "arguments": [
+                      {
+                        "kind": "name",
+                        "value": "state"
+                      },
+                      {
+                        "kind": "str",
+                        "value": "balance"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "int",
+                    "value": 6
+                  }
+                ]
+              },
+              "dependencies": [
+                "name:state",
+                "operator:eq",
+                "operator:field",
+                "path:state.balance"
+              ]
+            }
+          ]
+        }
+      ],
+      "initialState": {
+        "balance": {
+          "#bigint": "10"
+        }
+      }
+    }
+  ]
+}

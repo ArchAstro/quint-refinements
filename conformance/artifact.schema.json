@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archastro.github.io/quint-refinements/artifact.schema.json",
+  "title": "Quint refinement artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "modelDigest", "vocabulary", "fixtures", "scenarios"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "modelDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "vocabulary": { "$ref": "#/$defs/vocabulary" },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "strings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "vocabulary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actions",
+        "capabilities",
+        "expressionOperators",
+        "expressionNames",
+        "refinementExpressionOperators",
+        "runtimeObservationDependencies",
+        "runtimeObservationDependencyDigest"
+      ],
+      "properties": {
+        "actions": { "$ref": "#/$defs/strings" },
+        "capabilities": { "$ref": "#/$defs/strings" },
+        "expressionOperators": { "$ref": "#/$defs/strings" },
+        "expressionNames": { "$ref": "#/$defs/strings" },
+        "refinementExpressionOperators": { "$ref": "#/$defs/strings" },
+        "runtimeObservationDependencies": { "$ref": "#/$defs/strings" },
+        "runtimeObservationDependencyDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "expression": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "enum": ["name", "str"] },
+            "value": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "int" },
+            "value": { "type": "integer" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "bool" },
+            "value": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "operator", "arguments"],
+          "properties": {
+            "kind": { "const": "call" },
+            "operator": { "type": "string" },
+            "arguments": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/expression" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "parameters", "body"],
+          "properties": {
+            "kind": { "const": "lambda" },
+            "parameters": { "$ref": "#/$defs/strings" },
+            "body": { "$ref": "#/$defs/expression" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value", "body"],
+          "properties": {
+            "kind": { "const": "let" },
+            "name": { "type": "string" },
+            "value": { "$ref": "#/$defs/expression" },
+            "body": { "$ref": "#/$defs/expression" }
+          }
+        }
+      ]
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "expression"],
+      "properties": {
+        "scope": { "enum": ["model", "runtime"] },
+        "expression": { "$ref": "#/$defs/expression" },
+        "dependencies": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["index", "kind"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "kind": { "enum": ["init", "action", "observe"] },
+        "action": { "type": "string" },
+        "arguments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/expression" }
+        },
+        "guards": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assertion" }
+        },
+        "next": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assertion" }
+        },
+        "assertions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assertion" }
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "module",
+        "fixtureNamespace",
+        "name",
+        "requiredCapabilities",
+        "steps"
+      ],
+      "properties": {
+        "source": { "type": "string" },
+        "module": { "type": "string" },
+        "fixtureNamespace": { "type": "string" },
+        "name": { "type": "string" },
+        "requiredCapabilities": { "$ref": "#/$defs/strings" },
+        "initialState": true,
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/step" }
+        }
+      }
+    }
+  }
+}
