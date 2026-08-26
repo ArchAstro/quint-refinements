@@ -22,14 +22,16 @@ pub use artifact::{
     ConformanceArtifact,
 };
 pub use drive::{
-    AsyncPrimitiveDriver, PrimitiveDriver, evaluate_refined_tape, refine_scenario,
-    refine_scenario_async,
+    AsyncActionDriver, AsyncPrimitiveDriver, PrimitiveDriver, RefinementRun, RefinementSession,
+    ResolvedAction, evaluate_refined_runtime_assertions, evaluate_refined_tape, refine_scenario,
+    refine_scenario_async, resolve_action_plan, run_refined_actions_async,
 };
 pub use error::Error;
 pub use evaluate::{
-    NormalizedRuntimeEvidence, RuntimeValue, evaluate_all_action_steps,
+    NormalizedRuntimeEvidence, RuntimeValue, evaluate_action_arguments, evaluate_all_action_steps,
     evaluate_all_step_obligations, evaluate_chapter_next, evaluate_every_action_step,
-    evaluate_preceding_action_next, evaluate_runtime_assertions, evaluate_step_obligations,
+    evaluate_preceding_action_next, evaluate_projected_action_steps,
+    evaluate_projected_runtime_assertions, evaluate_runtime_assertions, evaluate_step_obligations,
 };
 pub use fixtures::{BoundEvidence, FixtureTable, QuintFixture};
 pub use ownership::{

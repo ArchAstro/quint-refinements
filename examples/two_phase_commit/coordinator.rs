@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use quint_refinements::{
     AsyncPrimitiveDriver, ConformanceArtifact, FixtureTable, NormalizedRuntimeEvidence,
-    OwnershipTable, PrimitiveDriver, QuintFixture, RuntimeValue, collect_ownership_records,
-    quint_ownership, refine_scenario, refine_scenario_async,
+    OwnershipTable, PrimitiveDriver, QuintFixture, ResolvedAction, RuntimeValue,
+    collect_ownership_records, quint_ownership, refine_scenario, refine_scenario_async,
 };
 
 quint_ownership! {
@@ -202,7 +202,7 @@ impl PrimitiveDriver for Coordinator {
     fn run_primitive(
         &mut self,
         primitive: &str,
-        owned_actions: &[String],
+        actions: &[ResolvedAction],
     ) -> Result<Vec<Snapshot>, String> {
         match primitive {
             "postgres.txn.begin" => {
@@ -210,15 +210,13 @@ impl PrimitiveDriver for Coordinator {
                 Ok(vec![self.snapshot.clone()])
             }
             "postgres.txn.commit" => {
-                if owned_actions
-                    != [
-                        "prepare".to_owned(),
-                        "flushWal".to_owned(),
-                        "commitPrepared".to_owned(),
-                    ]
-                {
+                if actions.iter().map(|action| action.name.as_str()).ne([
+                    "prepare",
+                    "flushWal",
+                    "commitPrepared",
+                ]) {
                     return Err(format!(
-                        "commit tape must be prepare, flushWal, commitPrepared; got {owned_actions:?}"
+                        "commit tape must be prepare, flushWal, commitPrepared; got {actions:?}"
                     ));
                 }
                 self.commit()
@@ -234,9 +232,9 @@ impl AsyncPrimitiveDriver for Coordinator {
     async fn run_primitive(
         &mut self,
         primitive: &str,
-        owned_actions: &[String],
+        actions: &[ResolvedAction],
     ) -> Result<Vec<Self::Evidence>, String> {
-        PrimitiveDriver::run_primitive(self, primitive, owned_actions)
+        PrimitiveDriver::run_primitive(self, primitive, actions)
     }
 }
 

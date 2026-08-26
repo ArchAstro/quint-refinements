@@ -150,6 +150,17 @@ impl FixtureTable {
 
     /// Every JSON fixture in this namespace must have a Rust owner with equal JSON.
     pub fn validate(&self, artifact: &ConformanceArtifact) -> Result<(), Error> {
+        self.validate_selected(artifact, &[])
+    }
+
+    /// Every namespace fixture must have a Rust owner; validate normalized
+    /// names only in the scenario runners selected by this proof. An empty
+    /// selection validates every scenario in the namespace.
+    pub fn validate_selected(
+        &self,
+        artifact: &ConformanceArtifact,
+        scenario_ids: &[&str],
+    ) -> Result<(), Error> {
         let Some(expected) = artifact.fixtures.get(&self.namespace) else {
             return Err(Error::new(format!(
                 "fixture namespace {} is missing from the artifact",
@@ -174,9 +185,17 @@ impl FixtureTable {
                 )));
             }
         }
+        let vocabulary_names = artifact
+            .vocabulary
+            .expression_names
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
         for scenario in &artifact.scenarios {
-            if scenario.fixture_namespace == self.namespace {
-                validate_scenario_names(scenario, self)?;
+            if scenario.fixture_namespace == self.namespace
+                && (scenario_ids.is_empty() || scenario_ids.contains(&scenario.id().as_str()))
+            {
+                validate_scenario_names(scenario, self, &vocabulary_names)?;
             }
         }
         Ok(())
@@ -313,6 +332,7 @@ fn expression_names_bound(expression: &Value, bound: &BTreeSet<String>) -> Vec<S
 fn validate_scenario_names(
     scenario: &ArtifactScenario,
     fixtures: &FixtureTable,
+    vocabulary_names: &BTreeSet<&str>,
 ) -> Result<(), Error> {
     for step in &scenario.steps {
         let ArtifactStep::Action {
@@ -326,7 +346,10 @@ fn validate_scenario_names(
         };
         for assertion in guards.iter().chain(next.iter()) {
             for name in expression_names(&assertion.expression) {
-                if name == "state" || fixtures.contains_name(&name) {
+                if name == "state"
+                    || fixtures.contains_name(&name)
+                    || vocabulary_names.contains(name.as_str())
+                {
                     continue;
                 }
                 return Err(Error::new(format!(
