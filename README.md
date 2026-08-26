@@ -1,126 +1,90 @@
 # quint-refinements
 
-Framework for running a Quint model as a refinement of a real implementation.
+`quint-refinements` checks that a Rust implementation follows scenarios generated from a [Quint](https://quint-lang.org/) model. A Rust primitive declares which Quint action or ordered action sequence it owns, executes once, returns observable snapshots, and the crate evaluates every generated guard and next-state obligation.
 
-## Why this crate exists
+```text
+Quint model -> generated JSON -> ownership scheduler -> real Rust command
+                                                     -> evidence snapshots
+                         generated obligations <---- refinement evaluator
+```
 
-Arch Gateway conformance grew a JSON artifact, ownership records, and
-`evaluate_every_action_step`, then still *drove* scenarios with handwritten
-scripts. One Rust command (`invoke`) implements three Quint actions
-(`submitInvocation`, `selectForAttempt`, `enqueueSelectedDelivery`). The
-scripts invented the middle snapshots (copy Hello, `with_selection`, map
-action names to `last_*` tags). Green tests did not prove the impl took those
-three spec steps.
+## What it proves
 
-The cheat is easy when evaluation is generic but **execution is a per-scenario
-story**. This crate makes execution generic too.
+1. Every scenario action has an explicit implementation owner.
+2. One implementation command may refine one action or an ordered 1-to-N action sequence.
+3. The command returns exactly one evidence snapshot per owned action.
+4. Rust fixtures match the values generated from Quint.
+5. Guards and complete next-state assignments hold over the returned snapshot tape.
 
-## The only legal loop
+The crate does not decide which scenarios a product must cover. Coverage policy remains in the consuming project.
 
-1. Generate JSON from a Quint app (`harness/`).
-2. Rust primitives declare ownership (`quint_ownership!`).
-3. `schedule_primitive_runs` maps JSON actions onto primitive runs.
-4. `PrimitiveDriver::run_primitive` or `AsyncPrimitiveDriver::run_primitive`
-   runs **one** impl command and returns
-   **exactly** `owned_actions.len()` snapshots, in that order.
-5. Rust structs own Quint fixture names (`FixtureTable` / `QuintFixture`).
-6. `refine_scenario` evaluates **every** retrieve-before guard and retrieve-after
-   next conjunct. Fixture names resolve from the table; `state` resolves from
-   the snapshot. Nothing is skipped.
-
-1-to-N is declared, not inferred:
+## Quick start
 
 ```rust
+use quint_refinements::quint_ownership;
+
 quint_ownership! {
-    pub const ENQUEUE = {
-        primitive: "gateway.delivery.enqueue",
-        refines: ["submitInvocation", "selectForAttempt", "enqueueSelectedDelivery"],
-        observations: [/* retrieve-able after the command */],
+    pub const COMMIT = {
+        primitive: "database.transaction.commit",
+        refines: ["prepare", "flushWal", "commitPrepared"],
+        aliases: [],
+        observations: ["path:state.status", "path:state.wal"],
+        retrieve: ["name:state"],
     };
 }
 ```
 
-`refines` is the ordered spec tape of **one** impl command. The driver returns
-that many snapshots. JSON must present the sequence intact. `aliases` are extra
-JSON names for a 1-step refine only (`openConnection` / `openConnectionForRuntimeOwner`).
-A flat `actions` list still means independent 1-step names (coverage ownership
-of several commands), not a sequence.
+Implement `PrimitiveDriver` or `AsyncPrimitiveDriver`, then pass the generated scenario, initial evidence, ownership descriptors, fixtures, and driver to `refine_scenario` or `refine_scenario_async`.
 
-## Fixtures
+## Examples
 
-Quint `pure val` names (`attemptA`) and universe sets
-(`statuses.contains(...)`) are not model-only skips. They are Rust values
-that must match the JSON artifact:
+| Example | Demonstrates | Command |
+|---|---|---|
+| `two_phase_commit` | Full Quint model, generated traces, fixtures, 1-to-N ownership, exact state assignments | `cargo run --example two_phase_commit` |
+| `two_phase_commit_async` | The same scenario through the runtime-neutral async driver | `cargo run --example two_phase_commit_async` |
+| `ownership_records` | One-step ownership, aliases, compound sequences, deterministic aggregation | `cargo run --example ownership_records` |
+| `fixture_ownership` | Rust-owned Quint fixtures and drift validation | `cargo run --example fixture_ownership` |
+| `structural_values` | Lossless ITF records, maps, sets, tuples, and variants | `cargo run --example structural_values` |
+| `failure_modes` | Fail-closed behavior for partial action sequences and short evidence tapes | `cargo run --example failure_modes` |
 
-```rust
-impl QuintFixture for Status { /* artifact_json + runtime_value */ }
+The [examples guide](examples/README.md) provides an ordered learning path. Start with `ownership_records`, then run the two-phase commit example. Its files are intentionally kept together under [`examples/two_phase_commit`](examples/two_phase_commit):
 
-let fixtures = FixtureTable::new("two_phase_commit")
-    .insert_set("statuses", &[Status::Idle, Status::Open, /* ... */]);
-fixtures.validate(&artifact)?;
+- `model.qnt` is the executable specification.
+- `app-config.mjs` declares the model entry points and retrieve vocabulary.
+- `generate-traces.mjs` invokes the reusable generator.
+- `traces.json` is checked-in generated evidence.
+- `coordinator.rs` is the implementation adapter used by sync and async examples.
+
+## Generate and verify traces
+
+The JavaScript generator is part of the distribution because it extracts complete refinement obligations from Quint's Informal Trace Format.
+
+```console
+npm ci
+npm run check:traces
+# After an intentional model or generator change:
+npm run generate:traces
 ```
 
-- **Fixture names** — production (or example) structs. Validate fails if a JSON
-  name has no owner or if the JSON shape drifted from the struct.
-- **Live `state.*`** — retrieve-before / retrieve-after snapshots.
-- **Observe `*Inv` theorems** — still Quint-only; those are not action guards.
+The Quint version is pinned in `package.json`. Generated trace drift fails CI.
 
-`evaluate_every_action_step` still skips `scope: model` for unmigrated
-gateway runners. `refine_scenario` / `evaluate_refined_tape` do not.
-`assign` is a boolean (`x' = e`): RHS in the current snapshot, LHS in
-the next, including when it is nested under `match` / `if`.
+## Fixtures and evidence
 
-## Plug-in surface (what an app provides)
+`FixtureTable` binds stable model names, such as identifiers and finite universe sets, to Rust values implementing `QuintFixture`. `FixtureTable::validate` fails when generated JSON and Rust values diverge.
 
-- Quint sources plus an app config (explicit source/module/init/step,
-  vocabulary, retrieve policy, and fixture imports).
-- `quint_ownership!` on each implementation primitive.
-- A `FixtureTable` of real structs for every Quint name the JSON uses.
-- A sync `PrimitiveDriver` or runtime-neutral `AsyncPrimitiveDriver` that knows
-  how to run those primitive ids.
-- `NormalizedRuntimeEvidence` for domain snapshots (`state` only).
+Live snapshots implement `NormalizedRuntimeEvidence`. The name `state` conventionally resolves to the complete observed model state; domain-specific calls may be implemented through `resolve_call`.
 
-Coverage policy (which scenarios are required, `coverage.toml`) stays in the
-product. This crate does not know Arch Gateway.
+Assignments are exact: for `state' = expression`, the right side is evaluated against the current snapshot and compared with the complete next snapshot. Structural map keys and set members are preserved rather than converted to strings.
 
-## Generate
+## Development
 
-`harness/generate.mjs` runs `quint test --out-itf`, extracts runs, encodes
-**every** `all { }` conjunct: unprimed predicates as before-guards, `x' = e`
-as after (`assign`). Unknown AST kinds fail closed. Observe keeps the closed
-adapter vocabulary. ITF last_* deltas are extra runtime next, not a substitute
-for the Quint assignment.
-
-An app selects skip-nothing runs by stable module and run id:
-
-```js
-generateConformanceTraces({
-  root,
-  specDir,
-  app,
-  fullyRefinedRuns: new Set(["two_phase_commit.commitRun"]),
-})
+```console
+npm ci
+npm run check:traces
+cargo test --locked --all-targets
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo package --locked
 ```
 
-Selected runs recursively inline Quint definitions and lets. Unselected runs
-keep the smaller compatibility artifact while their runtime adapters migrate.
-Runtime maps retain structural keys, sets retain structural members, and
-assignment compares the complete normalized before/after state exactly. Each
-selected run also carries its generated ITF initial state, so adapters start
-from every model field and overlay concrete observations instead of building a
-sparse test twin. `expression_vocabulary.json` is the shared generator/Rust
-operator contract; selecting a run with an unsupported operator fails during
-generation.
-
-## Example
-
-`examples/two_phase_commit/` is a second configured Quint app, not a handwritten
-artifact. Quint has `prepare`, `flushWal`, `commitPrepared`; Rust `commit()` is
-one function that refines those three through both sync and async package APIs.
-
-```
-node examples/two_phase_commit/generate-traces.mjs --check
-cargo test --test two_phase_commit
-cargo test --test generated_two_phase_commit
-cargo run --example two_phase_commit
-```
+The minimum supported Rust version is 1.85. The project is licensed under the MIT License.

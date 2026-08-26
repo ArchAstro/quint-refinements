@@ -2,8 +2,30 @@
 name = "quint-refinements"
 version = "0.1.0"
 edition = "2024"
-publish = false
-description = "Declarative Quint-to-implementation refinement: ownership records, generated traces, and a plug-in primitive driver."
+rust-version = "1.85"
+description = "Declarative refinement testing between Quint models and Rust implementations"
+license = "MIT"
+repository = "https://github.com/ArchAstro/quint-refinements"
+documentation = "https://docs.rs/quint-refinements"
+readme = "README.md"
+keywords = ["quint", "refinement", "formal-methods", "testing"]
+categories = ["development-tools::testing"]
+include = [
+    "/src/**",
+    "/harness/**",
+    "/examples/**",
+    "/tests/**",
+    "/expression_vocabulary.json",
+    "/package.json",
+    "/package-lock.json",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/RELEASING.md",
+]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -24,3 +46,7 @@ unwrap_used = "deny"
 [[example]]
 name = "two_phase_commit"
 path = "examples/two_phase_commit.rs"
+
+[[example]]
+name = "two_phase_commit_async"
+path = "examples/two_phase_commit_async.rs"

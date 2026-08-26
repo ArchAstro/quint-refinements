@@ -2,23 +2,40 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::artifact::{ArtifactAssertion, ArtifactScenario, ArtifactStep, AssertionScope};
 
-/// A normalized Q12 value reconstructed from runtime-owned evidence.
+/// A normalized Quint value reconstructed from runtime-owned evidence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeValue {
+    /// Boolean value.
     Bool(bool),
+    /// Signed integer value.
     Int(i64),
+    /// Text value or unit constructor name.
     Text(String),
+    /// Structurally keyed set.
     Set(BTreeSet<Self>),
+    /// Ordered list.
     List(Vec<Self>),
+    /// Fixed-position tuple.
     Tuple(Vec<Self>),
+    /// Map whose keys and values retain their Quint structure.
     Map(BTreeMap<Self, Self>),
+    /// Record keyed by field name.
     Record(BTreeMap<String, Self>),
-    Variant { tag: String, value: Box<Self> },
+    /// Tagged union value.
+    Variant {
+        /// Constructor tag.
+        tag: String,
+        /// Constructor payload.
+        value: Box<Self>,
+    },
+    /// Quint `Absent` option.
     Absent,
+    /// Quint `Present` option and its value.
     Present(Box<Self>),
 }
 
 impl RuntimeValue {
+    /// Builds a normalized set of text values.
     #[must_use]
     pub fn text_set<I, S>(values: I) -> Self
     where
@@ -118,13 +135,15 @@ fn decode_itf_values(value: &serde_json::Value, kind: &str) -> Result<Vec<Runtim
         .collect()
 }
 
-/// Resolves the domain-specific names and calls used by a Q12 runtime adapter.
+/// Resolves domain-specific names and calls used by refinement expressions.
 ///
 /// The shared evaluator owns the normalized expression grammar. Implementors
 /// expose only evidence that is specific to one runtime scenario family.
 pub trait NormalizedRuntimeEvidence {
+    /// Resolves a generated name such as `state` to its observed value.
     fn resolve_name(&self, name: &str) -> Result<RuntimeValue, String>;
 
+    /// Resolves an optional domain-specific call, or returns `None` for built-in evaluation.
     fn resolve_call(
         &self,
         operator: &str,
@@ -132,7 +151,7 @@ pub trait NormalizedRuntimeEvidence {
     ) -> Option<Result<RuntimeValue, String>>;
 }
 
-/// Evaluates every non-model assertion in a checked Q12 scenario.
+/// Evaluates every non-model assertion in a checked scenario.
 ///
 /// Evaluation fails closed when an assertion references a dependency outside
 /// the adapter's declared registry or uses unsupported normalized syntax.
@@ -1002,7 +1021,7 @@ fn evaluate_match_variant<E: NormalizedRuntimeEvidence>(
 }
 
 fn record_from_values(values: &[RuntimeValue]) -> Result<RuntimeValue, String> {
-    if !values.len().is_multiple_of(2) {
+    if values.len() % 2 != 0 {
         return Err("Rec requires key and value pairs".to_owned());
     }
     let mut fields = BTreeMap::new();

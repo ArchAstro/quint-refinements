@@ -4,7 +4,9 @@ use crate::ownership::OwnershipDescriptor;
 /// One impl command the JSON driver must run, and the Quint actions it fills.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScheduledPrimitiveRun {
+    /// Stable identifier of the implementation command to execute.
     pub primitive: String,
+    /// Ordered model actions covered by this single execution.
     pub owned_actions: Vec<String>,
 }
 

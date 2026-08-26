@@ -16,8 +16,10 @@ use crate::schedule::{
 /// runs the impl command once and returns three evidences. Aliases are not a
 /// sequence.
 pub trait PrimitiveDriver {
+    /// Snapshot type returned by the implementation adapter.
     type Evidence: NormalizedRuntimeEvidence;
 
+    /// Executes `primitive` once and returns one snapshot per ordered owned action.
     fn run_primitive(
         &mut self,
         primitive: &str,
@@ -31,8 +33,10 @@ pub trait PrimitiveDriver {
 /// per ordered Quint action it refines. The returned future is `Send` so a
 /// generic refinement can run under a multi-threaded executor without boxing.
 pub trait AsyncPrimitiveDriver {
+    /// Snapshot type returned by the implementation adapter.
     type Evidence: NormalizedRuntimeEvidence;
 
+    /// Asynchronously executes `primitive` once and returns its ordered snapshots.
     fn run_primitive(
         &mut self,
         primitive: &str,

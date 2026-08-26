@@ -6,7 +6,7 @@ import { generateConformanceTraces } from "../../harness/generate.mjs";
 import { twoPhaseCommitApp } from "./app-config.mjs";
 
 const specDir = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(specDir, "../../../../..");
+const root = path.resolve(specDir, "../..");
 const outputPath = path.join(specDir, "traces.json");
 const check = process.argv.slice(2).includes("--check");
 const unexpectedArguments = process.argv.slice(2).filter(argument => argument !== "--check");

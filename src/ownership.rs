@@ -8,11 +8,13 @@ use crate::Error;
 pub struct PrimitiveId(&'static str);
 
 impl PrimitiveId {
+    /// Creates a stable primitive identifier.
     #[must_use]
     pub const fn new(value: &'static str) -> Self {
         Self(value)
     }
 
+    /// Returns the identifier string.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         self.0
@@ -32,39 +34,63 @@ impl PrimitiveId {
 /// run). Prefer `refines` for new records.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct OwnershipRecord {
+    /// Stable identifier of the implementation command.
     pub primitive: PrimitiveId,
+    /// Ordered model actions refined by one command execution.
     pub refines: &'static [&'static str],
+    /// Alternate generated names for a one-step action.
     pub aliases: &'static [&'static str],
+    /// Legacy independent action names retained for compatibility.
     pub actions: &'static [&'static str],
+    /// Observation paths the primitive makes available.
     pub observations: &'static [&'static str],
+    /// Expression dependencies the primitive can retrieve.
     pub retrieve: &'static [&'static str],
 }
 
 /// One package's exported ownership slice.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OwnershipTable {
+    /// Package or module that exports the records.
     pub owner: &'static str,
+    /// Compile-time ownership records exported by the owner.
     pub descriptors: &'static [OwnershipRecord],
 }
 
 /// Runtime copy of an ownership record with an owning package name.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct OwnershipDescriptor {
+    /// Package or module that exported the record.
     pub owner: String,
+    /// Stable identifier of the implementation command.
     pub primitive: String,
+    /// Ordered model actions refined by one execution.
     pub refines: Vec<String>,
+    /// Alternate generated names for a one-step action.
     pub aliases: Vec<String>,
+    /// All independently covered names used by compatibility reporting.
     pub actions: Vec<String>,
+    /// Observation paths made available by the command.
     pub observations: Vec<String>,
+    /// Expression dependencies the command can retrieve.
     pub retrieve: Vec<String>,
 }
 
 /// Why deterministic descriptor aggregation failed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AggregationError {
-    EmptyPrimitiveId { owner: &'static str },
+    /// An owner exported an empty implementation identifier.
+    EmptyPrimitiveId {
+        /// Owner that exported the invalid record.
+        owner: &'static str,
+    },
+    /// More than one owner exported the same primitive identifier.
     DuplicatePrimitiveId(String),
-    AliasesOnCompoundSequence { primitive: String },
+    /// A compound sequence declared aliases, which are only valid for one-step actions.
+    AliasesOnCompoundSequence {
+        /// Primitive containing the invalid declaration.
+        primitive: String,
+    },
 }
 
 impl std::fmt::Display for AggregationError {
