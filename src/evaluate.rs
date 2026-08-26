@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::artifact::{ArtifactAssertion, ArtifactScenario, ArtifactStep, AssertionScope};
@@ -151,6 +152,33 @@ pub trait NormalizedRuntimeEvidence {
     ) -> Option<Result<RuntimeValue, String>>;
 }
 
+/// Resolve one generated action's Quint arguments against hydrated Rust
+/// fixtures and the current scenario state.
+pub fn evaluate_action_arguments(
+    step: &ArtifactStep,
+    evidence: &impl NormalizedRuntimeEvidence,
+) -> Result<Vec<RuntimeValue>, String> {
+    let ArtifactStep::Action {
+        action, arguments, ..
+    } = step
+    else {
+        return Err("only action steps have runtime arguments".to_owned());
+    };
+    let eval = Eval {
+        current: evidence,
+        before: evidence,
+        after: evidence,
+        assignment_sink: None,
+    };
+    arguments
+        .iter()
+        .map(|argument| {
+            evaluate_expression(argument, &eval, &BTreeMap::new())
+                .map_err(|error| format!("{action} argument: {error}"))
+        })
+        .collect()
+}
+
 /// Evaluates every non-model assertion in a checked scenario.
 ///
 /// Evaluation fails closed when an assertion references a dependency outside
@@ -170,6 +198,7 @@ pub fn evaluate_runtime_assertions(
             current: evidence,
             before: evidence,
             after: evidence,
+            assignment_sink: None,
         };
         evaluated += evaluate_assertions(
             &scenario.id(),
@@ -280,6 +309,545 @@ pub fn evaluate_all_action_steps<E: NormalizedRuntimeEvidence>(
     evaluate_action_steps(scenario, snapshots, retrieve, false)
 }
 
+/// Evaluate a complete scenario as a reducer over its generated action tape.
+///
+/// The generated Quint initial state is hydrated once into [`RuntimeValue`].
+/// Each generated action assignment advances that hydrated state; Rust action
+/// evidence overlays only the state fields claimed by the retrieve contract.
+/// Pre-guards evaluate before the assignment and Rust action, while assignment
+/// guards and every `next` conjunct evaluate against the merged state after it.
+/// Rust therefore implements reusable actions, not handwritten scenarios or a
+/// second copy of Quint's state-transition logic.
+pub fn evaluate_projected_action_steps<E: NormalizedRuntimeEvidence>(
+    scenario: &ArtifactScenario,
+    snapshots: &[E],
+    retrieve: &[&str],
+) -> Result<usize, String> {
+    evaluate_projected_action_steps_inner(scenario, snapshots, retrieve, true)
+        .map(|(evaluated, _)| evaluated)
+}
+
+/// Evaluate final scenario observations against the same accumulated state
+/// produced by the action reducer.
+pub fn evaluate_projected_runtime_assertions<E: NormalizedRuntimeEvidence>(
+    scenario: &ArtifactScenario,
+    snapshots: &[E],
+    retrieve: &[&str],
+    supported_dependencies: &[&str],
+) -> Result<usize, String> {
+    let action_total = scenario
+        .steps
+        .iter()
+        .filter(|step| matches!(step, ArtifactStep::Action { .. }))
+        .count();
+    if snapshots.len() != action_total + 1 {
+        return Err(format!(
+            "{} has {action_total} actions but {} snapshots",
+            scenario.id(),
+            snapshots.len()
+        ));
+    }
+    let mut action_count = 0;
+    let mut evaluated = 0;
+    for step in &scenario.steps {
+        match step {
+            ArtifactStep::Action { .. } => action_count += 1,
+            ArtifactStep::Observe { .. } => {
+                let state = evaluate_projected_prefix_state(
+                    scenario,
+                    &snapshots[..=action_count],
+                    retrieve,
+                    action_count,
+                )?;
+                let mut chapter = scenario.clone();
+                chapter.steps = vec![step.clone()];
+                evaluated += evaluate_runtime_assertions(
+                    &chapter,
+                    &ProjectedEvidence {
+                        snapshot: &snapshots[action_count],
+                        state,
+                    },
+                    supported_dependencies,
+                )?;
+            }
+            ArtifactStep::Init { .. } => {}
+        }
+    }
+    if evaluated == 0 {
+        return Err(format!("{} evaluated no runtime assertions", scenario.id()));
+    }
+    Ok(evaluated)
+}
+
+pub(crate) fn evaluate_projected_prefix_state<E: NormalizedRuntimeEvidence>(
+    scenario: &ArtifactScenario,
+    snapshots: &[E],
+    retrieve: &[&str],
+    action_count: usize,
+) -> Result<RuntimeValue, String> {
+    let mut prefix = scenario.clone();
+    let mut retained_actions = 0;
+    prefix.steps.retain(|step| match step {
+        ArtifactStep::Init { .. } => true,
+        ArtifactStep::Action { .. } if retained_actions < action_count => {
+            retained_actions += 1;
+            true
+        }
+        ArtifactStep::Action { .. } | ArtifactStep::Observe { .. } => false,
+    });
+    evaluate_projected_action_steps_inner(&prefix, snapshots, retrieve, false)
+        .map(|(_, state)| state)
+}
+
+pub(crate) fn evaluate_projected_pre_guards<E: NormalizedRuntimeEvidence>(
+    scenario: &ArtifactScenario,
+    action_index: usize,
+    state: &RuntimeValue,
+    snapshot: &E,
+    retrieve: &[&str],
+) -> Result<usize, String> {
+    let (action, guards) = scenario
+        .steps
+        .iter()
+        .filter_map(|step| match step {
+            ArtifactStep::Action { action, guards, .. } => Some((action, guards)),
+            ArtifactStep::Init { .. } | ArtifactStep::Observe { .. } => None,
+        })
+        .nth(action_index)
+        .ok_or_else(|| format!("{} has no action {action_index}", scenario.id()))?;
+    let pre_guards = guards
+        .iter()
+        .filter(|assertion| !contains_assignment(&assertion.expression))
+        .cloned()
+        .collect::<Vec<_>>();
+    let before = ProjectedEvidence {
+        snapshot,
+        state: state.clone(),
+    };
+    let eval = Eval {
+        current: &before,
+        before: &before,
+        after: &before,
+        assignment_sink: None,
+    };
+    let context = format!("{}:{action}", scenario.id());
+    evaluate_assertions(&context, "pre-guard", &pre_guards, &eval, retrieve, false)
+}
+
+fn evaluate_projected_action_steps_inner<E: NormalizedRuntimeEvidence>(
+    scenario: &ArtifactScenario,
+    snapshots: &[E],
+    retrieve: &[&str],
+    require_obligations: bool,
+) -> Result<(usize, RuntimeValue), String> {
+    let actions = scenario
+        .steps
+        .iter()
+        .filter_map(|step| match step {
+            ArtifactStep::Action {
+                action,
+                guards,
+                next,
+                ..
+            } => Some((action.as_str(), guards.as_slice(), next.as_slice())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if snapshots.len() != actions.len() + 1 {
+        return Err(format!(
+            "{} has {} actions but {} snapshots (want init plus one after each action)",
+            scenario.id(),
+            actions.len(),
+            snapshots.len()
+        ));
+    }
+    let initial = scenario
+        .initial_state
+        .as_ref()
+        .ok_or_else(|| format!("{} has no complete initial state", scenario.id()))?;
+    let mut state = RuntimeValue::from_itf_json(initial)
+        .map_err(|error| format!("{} initial state: {error}", scenario.id()))?;
+    let initial_observed = snapshots[0]
+        .resolve_name("state")
+        .map_err(|error| format!("{} init state evidence: {error}", scenario.id()))?;
+    if !structurally_equal(&state, &initial_observed) {
+        return Err(format!(
+            "{} Rust fixture does not match Quint initial state: {}",
+            scenario.id(),
+            structural_difference(&state, &initial_observed, "state")
+                .unwrap_or_else(|| "normalized values differ".to_owned())
+        ));
+    }
+    let mut evaluated = 0;
+
+    for (index, (action, guards, next)) in actions.iter().enumerate() {
+        let step = evaluate_projected_action_step(
+            &scenario.id(),
+            action,
+            guards,
+            next,
+            &state,
+            &snapshots[index],
+            &snapshots[index + 1],
+            retrieve,
+        )?;
+        evaluated += step.0;
+        state = step.1;
+    }
+
+    if require_obligations && evaluated == 0 {
+        return Err(format!("{} evaluated no action obligations", scenario.id()));
+    }
+    Ok((evaluated, state))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn evaluate_projected_action_step<E: NormalizedRuntimeEvidence>(
+    scenario_id: &str,
+    action: &str,
+    guards: &[ArtifactAssertion],
+    next: &[ArtifactAssertion],
+    state: &RuntimeValue,
+    before_snapshot: &E,
+    after_snapshot: &E,
+    retrieve: &[&str],
+) -> Result<(usize, RuntimeValue), String> {
+    let context = format!("{scenario_id}:{action}");
+    let before = ProjectedEvidence {
+        snapshot: before_snapshot,
+        state: state.clone(),
+    };
+    let pre_guards = guards
+        .iter()
+        .filter(|assertion| !contains_assignment(&assertion.expression))
+        .cloned()
+        .collect::<Vec<_>>();
+    let guard_eval = Eval {
+        current: &before,
+        before: &before,
+        after: &before,
+        assignment_sink: None,
+    };
+    let mut evaluated = evaluate_assertions(
+        &context,
+        "pre-guard",
+        &pre_guards,
+        &guard_eval,
+        retrieve,
+        false,
+    )?;
+
+    let assignment = RefCell::new(None);
+    let capture_eval = Eval {
+        current: &before,
+        before: &before,
+        after: &before,
+        assignment_sink: Some(&assignment),
+    };
+    let (assignment_kind, assignment_assertion) = guards
+        .iter()
+        .find(|assertion| contains_assignment(&assertion.expression))
+        .map(|assertion| ("post-guard", assertion))
+        .or_else(|| {
+            next.iter()
+                .find(|assertion| contains_assignment(&assertion.expression))
+                .map(|assertion| ("next", assertion))
+        })
+        .ok_or_else(|| format!("{context} next: complete action has no state assignment"))?;
+    evaluate_assertions(
+        &context,
+        assignment_kind,
+        std::slice::from_ref(assignment_assertion),
+        &capture_eval,
+        retrieve,
+        false,
+    )?;
+    let model_next = assignment
+        .into_inner()
+        .ok_or_else(|| format!("{context} next: complete action has no state assignment"))?;
+    let observed = after_snapshot
+        .resolve_name("state")
+        .map_err(|error| format!("{context} state evidence: {error}"))?;
+    let action_observed_fields = guards
+        .iter()
+        .chain(next.iter())
+        .filter(|assertion| assertion.scope == AssertionScope::Runtime)
+        .flat_map(|assertion| assertion.dependencies.iter())
+        .filter_map(|dependency| dependency.strip_prefix("path:state."))
+        .filter_map(|path| path.split('.').next())
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    require_changed_observations(state, &model_next, &observed, &action_observed_fields)
+        .map_err(|error| format!("{context} state evidence: {error}"))?;
+    let mut merged_fields = observed_state_fields(retrieve);
+    merged_fields.extend(action_observed_fields);
+    let merged = merge_observed_state(model_next, &observed, &merged_fields)?;
+    let after = ProjectedEvidence {
+        snapshot: after_snapshot,
+        state: merged.clone(),
+    };
+    let post_guards = guards
+        .iter()
+        .filter(|assertion| contains_assignment(&assertion.expression))
+        .cloned()
+        .collect::<Vec<_>>();
+    let next_eval = Eval {
+        current: &after,
+        before: &before,
+        after: &after,
+        assignment_sink: None,
+    };
+    let post_guard_eval = Eval {
+        current: &before,
+        before: &before,
+        after: &after,
+        assignment_sink: None,
+    };
+    evaluated += evaluate_assertions(
+        &context,
+        "post-guard",
+        &post_guards,
+        &post_guard_eval,
+        retrieve,
+        false,
+    )?;
+    evaluated += evaluate_assertions(&context, "next", next, &next_eval, retrieve, false)?;
+    Ok((evaluated, merged))
+}
+
+struct ProjectedEvidence<'a, E> {
+    snapshot: &'a E,
+    state: RuntimeValue,
+}
+
+impl<E: NormalizedRuntimeEvidence> NormalizedRuntimeEvidence for ProjectedEvidence<'_, E> {
+    fn resolve_name(&self, name: &str) -> Result<RuntimeValue, String> {
+        if name == "state" {
+            Ok(self.state.clone())
+        } else {
+            self.snapshot.resolve_name(name)
+        }
+    }
+
+    fn resolve_call(
+        &self,
+        operator: &str,
+        arguments: &[RuntimeValue],
+    ) -> Option<Result<RuntimeValue, String>> {
+        if let ("dedupEntry", [key]) = (operator, arguments) {
+            return Some(projected_optional_map_value(
+                &self.state,
+                "connector_dedup",
+                key,
+            ));
+        }
+        if let ("dedupValue", [key]) = (operator, arguments) {
+            return Some(
+                projected_optional_map_value(&self.state, "connector_dedup", key).and_then(
+                    |value| match value {
+                        RuntimeValue::Present(value) => Ok(*value),
+                        RuntimeValue::Absent => {
+                            Err("projected connector_dedup entry is absent".to_owned())
+                        }
+                        value => Ok(value),
+                    },
+                ),
+            );
+        }
+        if let ("resultFor", [RuntimeValue::Record(delivery), outcome]) = (operator, arguments) {
+            let field = |name: &str| {
+                delivery
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("deliveryValue has no {name}"))
+            };
+            return Some((|| {
+                Ok(RuntimeValue::Record(BTreeMap::from([
+                    ("attempt_id".to_owned(), field("attempt_id")?),
+                    ("delivery_id".to_owned(), field("id")?),
+                    ("org_id".to_owned(), field("org_id")?),
+                    ("service_spec_id".to_owned(), field("service_spec_id")?),
+                    ("service_id".to_owned(), field("service_id")?),
+                    ("connection_id".to_owned(), field("connection_id")?),
+                    ("outcome".to_owned(), outcome.clone()),
+                ])))
+            })());
+        }
+        let field = match operator {
+            "attemptValue" => Some("attempts"),
+            "connectionValue" => Some("connections"),
+            "deliveryValue" => Some("deliveries"),
+            "tokenValue" => Some("enrollment_tokens"),
+            _ => None,
+        };
+        if let (Some(field), [key]) = (field, arguments) {
+            return Some(projected_map_value(&self.state, field, key));
+        }
+        self.snapshot.resolve_call(operator, arguments)
+    }
+}
+
+fn projected_optional_map_value(
+    state: &RuntimeValue,
+    field: &str,
+    key: &RuntimeValue,
+) -> Result<RuntimeValue, String> {
+    let RuntimeValue::Record(state) = state else {
+        return Err("projected state is not a record".to_owned());
+    };
+    let Some(RuntimeValue::Map(values)) = state.get(field) else {
+        return Err(format!("projected state has no map {field}"));
+    };
+    Ok(values.get(key).cloned().unwrap_or(RuntimeValue::Absent))
+}
+
+fn projected_map_value(
+    state: &RuntimeValue,
+    field: &str,
+    key: &RuntimeValue,
+) -> Result<RuntimeValue, String> {
+    let RuntimeValue::Record(state) = state else {
+        return Err("projected state is not a record".to_owned());
+    };
+    let value = match (state.get(field), key) {
+        (Some(RuntimeValue::Map(values)), key) => values.get(key),
+        (Some(RuntimeValue::Record(values)), RuntimeValue::Text(key)) => values.get(key),
+        _ => return Err(format!("projected state has no keyed collection {field}")),
+    };
+    match value {
+        Some(RuntimeValue::Present(value)) => Ok((**value).clone()),
+        Some(RuntimeValue::Absent) | None => {
+            Err(format!("projected {field} has no value for {key:?}"))
+        }
+        Some(value) => Ok(value.clone()),
+    }
+}
+
+fn observed_state_fields(retrieve: &[&str]) -> BTreeSet<String> {
+    retrieve
+        .iter()
+        .filter_map(|dependency| dependency.strip_prefix("path:state."))
+        .filter_map(|path| path.split('.').next())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn contains_assignment(expression: &serde_json::Value) -> bool {
+    if expression["kind"].as_str() == Some("call")
+        && expression["operator"].as_str() == Some("assign")
+    {
+        return true;
+    }
+    match expression {
+        serde_json::Value::Array(values) => values.iter().any(contains_assignment),
+        serde_json::Value::Object(fields) => fields.values().any(contains_assignment),
+        _ => false,
+    }
+}
+
+fn merge_observed_state(
+    model: RuntimeValue,
+    observed: &RuntimeValue,
+    observed_fields: &BTreeSet<String>,
+) -> Result<RuntimeValue, String> {
+    let RuntimeValue::Record(mut model_fields) = model else {
+        return Err("generated Quint state is not a record".to_owned());
+    };
+    let RuntimeValue::Record(observed_fields_map) = observed else {
+        return Err("Rust action state evidence is not a record".to_owned());
+    };
+    for field in observed_fields {
+        let Some(value) = observed_fields_map.get(field) else {
+            continue;
+        };
+        let Some(model_value) = model_fields.get_mut(field) else {
+            return Err(format!(
+                "Rust action evidence contains field state.{field} outside the hydrated Quint state"
+            ));
+        };
+        merge_state_value(model_value, value);
+    }
+    Ok(RuntimeValue::Record(model_fields))
+}
+
+fn require_changed_observations(
+    before: &RuntimeValue,
+    model_next: &RuntimeValue,
+    observed: &RuntimeValue,
+    observable_fields: &BTreeSet<String>,
+) -> Result<(), String> {
+    let (RuntimeValue::Record(before), RuntimeValue::Record(model_next)) = (before, model_next)
+    else {
+        return Err("generated Quint state is not a record".to_owned());
+    };
+    let RuntimeValue::Record(observed) = observed else {
+        return Err("Rust action state evidence is not a record".to_owned());
+    };
+    for field in observable_fields {
+        if before.get(field) != model_next.get(field) && !observed.contains_key(field) {
+            return Err(format!(
+                "Rust action omitted changed runtime-owned field state.{field}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn merge_state_value(accumulated: &mut RuntimeValue, update: &RuntimeValue) {
+    match (accumulated, update) {
+        (RuntimeValue::Map(accumulated), RuntimeValue::Map(update)) => {
+            for (key, value) in update {
+                if let Some(accumulated_value) = accumulated.get_mut(key) {
+                    merge_state_value(accumulated_value, value);
+                } else {
+                    accumulated.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        (RuntimeValue::Map(accumulated), RuntimeValue::Record(update)) => {
+            for (key, value) in update {
+                let key = RuntimeValue::Text(key.clone());
+                if let Some(accumulated_value) = accumulated.get_mut(&key) {
+                    merge_state_value(accumulated_value, value);
+                } else {
+                    accumulated.insert(key, value.clone());
+                }
+            }
+        }
+        (RuntimeValue::Record(accumulated), RuntimeValue::Record(update)) => {
+            for (key, value) in update {
+                if let Some(accumulated_value) = accumulated.get_mut(key) {
+                    merge_state_value(accumulated_value, value);
+                } else {
+                    accumulated.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        (RuntimeValue::List(accumulated), RuntimeValue::List(update))
+        | (RuntimeValue::Tuple(accumulated), RuntimeValue::Tuple(update))
+            if accumulated.len() == update.len() =>
+        {
+            for (accumulated, update) in accumulated.iter_mut().zip(update) {
+                merge_state_value(accumulated, update);
+            }
+        }
+        (
+            RuntimeValue::Variant {
+                tag: accumulated_tag,
+                value: accumulated,
+            },
+            RuntimeValue::Variant {
+                tag: update_tag,
+                value: update,
+            },
+        ) if accumulated_tag == update_tag => merge_state_value(accumulated, update),
+        (RuntimeValue::Present(accumulated), RuntimeValue::Present(update)) => {
+            merge_state_value(accumulated, update);
+        }
+        (accumulated, update) => *accumulated = update.clone(),
+    }
+}
+
 /// Evaluates every guard and next conjunct, including model-scope.
 pub fn evaluate_all_step_obligations<E: NormalizedRuntimeEvidence>(
     scenario_id: &str,
@@ -365,6 +933,7 @@ fn evaluate_step_obligations_inner<E: NormalizedRuntimeEvidence>(
         current: before,
         before,
         after,
+        assignment_sink: None,
     };
     evaluated += evaluate_assertions(
         &context,
@@ -378,6 +947,7 @@ fn evaluate_step_obligations_inner<E: NormalizedRuntimeEvidence>(
         current: after,
         before,
         after,
+        assignment_sink: None,
     };
     evaluated += evaluate_assertions(&context, "next", next, &next_eval, retrieve, skip_model)?;
     if evaluated == 0 {
@@ -392,6 +962,7 @@ struct Eval<'a, E: NormalizedRuntimeEvidence> {
     current: &'a E,
     before: &'a E,
     after: &'a E,
+    assignment_sink: Option<&'a RefCell<Option<RuntimeValue>>>,
 }
 
 fn evaluate_assertions<E: NormalizedRuntimeEvidence>(
@@ -530,15 +1101,21 @@ fn evaluate_call<E: NormalizedRuntimeEvidence>(
                 current: eval.before,
                 before: eval.before,
                 after: eval.after,
+                assignment_sink: eval.assignment_sink,
             },
             environment,
         )?;
+        if let Some(sink) = eval.assignment_sink {
+            sink.replace(Some(expected));
+            return Ok(RuntimeValue::Bool(true));
+        }
         let observed = evaluate_expression(
             left,
             &Eval {
                 current: eval.after,
                 before: eval.before,
                 after: eval.after,
+                assignment_sink: eval.assignment_sink,
             },
             environment,
         )?;
@@ -608,6 +1185,22 @@ fn evaluate_call<E: NormalizedRuntimeEvidence>(
         ("Set", values) => Some(Ok(RuntimeValue::Set(values.iter().cloned().collect()))),
         ("Map", values) => Some(map_from_values(values)),
         ("Rec", values) => Some(record_from_values(values)),
+        (
+            "replicaPoolKey",
+            [
+                RuntimeValue::Text(replica_id),
+                RuntimeValue::Record(pool_key),
+            ],
+        ) => Some(Ok(RuntimeValue::Record(BTreeMap::from([
+            (
+                "replica_id".to_owned(),
+                RuntimeValue::Text(replica_id.clone()),
+            ),
+            (
+                "pool_key".to_owned(),
+                RuntimeValue::Record(pool_key.clone()),
+            ),
+        ])))),
         ("field", [RuntimeValue::Record(fields), RuntimeValue::Text(key)]) => Some(
             fields
                 .get(key)
@@ -735,13 +1328,24 @@ fn evaluate_call<E: NormalizedRuntimeEvidence>(
         _ => None,
     };
 
-    common
-        .or_else(|| eval.current.resolve_call(operator, &values))
-        .unwrap_or_else(|| {
-            Err(format!(
-                "unsupported runtime operator {operator} for {values:?}"
-            ))
-        })
+    if let Some(result) = common.or_else(|| eval.current.resolve_call(operator, &values)) {
+        return result;
+    }
+    if operator.chars().next().is_some_and(char::is_uppercase) {
+        let [value] = values.as_slice() else {
+            return Err(format!(
+                "variant constructor {operator} requires one value, received {}",
+                values.len()
+            ));
+        };
+        return Ok(RuntimeValue::Variant {
+            tag: operator.to_owned(),
+            value: Box::new(value.clone()),
+        });
+    }
+    Err(format!(
+        "unsupported runtime operator {operator} for {values:?}"
+    ))
 }
 
 fn structurally_equal(expected: &RuntimeValue, observed: &RuntimeValue) -> bool {
@@ -992,7 +1596,8 @@ fn evaluate_match_variant<E: NormalizedRuntimeEvidence>(
         RuntimeValue::Absent => ("Absent".to_owned(), None),
         RuntimeValue::Present(value) => ("Present".to_owned(), Some(*value)),
         RuntimeValue::Variant { tag, value } => (tag, Some(*value)),
-        _ => return Err("matchVariant value is not optional".to_owned()),
+        RuntimeValue::Text(tag) => (tag, Some(RuntimeValue::Tuple(Vec::new()))),
+        _ => return Err("matchVariant value is not a normalized variant".to_owned()),
     };
     for branch in arguments[1..].chunks_exact(2) {
         let RuntimeValue::Text(branch_tag) = evaluate_expression(&branch[0], eval, environment)?
