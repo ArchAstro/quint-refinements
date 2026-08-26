@@ -13,6 +13,7 @@ categories = ["development-tools::testing"]
 include = [
     "/src/**",
     "/harness/**",
+    "/docs/**",
     "/examples/**",
     "/tests/**",
     "/expression_vocabulary.json",

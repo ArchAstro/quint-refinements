@@ -1,0 +1,11 @@
+[package]
+name = "bank-refinement-tutorial"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+quint-refinements = { path = "../.." }
+
+[lints.rust]
+unsafe_code = "forbid"
