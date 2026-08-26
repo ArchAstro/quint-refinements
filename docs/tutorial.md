@@ -30,7 +30,7 @@ Quint AST -> generated scenario + generated Rust adapter
 You need Node.js 22 or newer and Rust 1.85 or newer.
 
 ```console
-npx @archastro/quint-refinements new bank-refinement
+npx quint-refinements new bank-refinement
 cd bank-refinement
 ```
 

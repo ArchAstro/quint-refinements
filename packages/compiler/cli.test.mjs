@@ -11,6 +11,9 @@ import { compileProject, createProject } from "./cli.mjs";
 const compilerRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(compilerRoot, "..", "..");
 const rustBindingRoot = path.join(repositoryRoot, "bindings", "rust");
+const packageMetadata = JSON.parse(
+  fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
+);
 
 test("new and compile derive the integration from the Quint AST", () => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "quint-refinements-cli-test-"));
@@ -137,7 +140,7 @@ test("a packed npm install creates and compiles a project with hoisted Quint", (
       [
         "--input-type=module",
         "--eval",
-        'import("@archastro/quint-refinements/harness/generate.mjs")',
+        'import("quint-refinements/harness/generate.mjs")',
       ],
       { cwd: consumerDirectory, encoding: "utf8" },
     );
@@ -155,6 +158,12 @@ test("a packed npm install creates and compiles a project with hoisted Quint", (
       encoding: "utf8",
     });
     assert.equal(created.status, 0, created.stderr);
+    const generatedPackage = JSON.parse(
+      fs.readFileSync(path.join(consumerDirectory, "counter", "package.json"), "utf8"),
+    );
+    assert.deepEqual(generatedPackage.dependencies, {
+      "quint-refinements": `^${packageMetadata.version}`,
+    });
     const compiled = spawnSync(binary, ["compile", "counter/model.qnt"], {
       cwd: consumerDirectory,
       encoding: "utf8",

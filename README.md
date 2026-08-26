@@ -36,7 +36,7 @@ Future runtimes belong under `bindings/<language>`. Cross-language example proje
 Create a project and generate its Rust boundary from Quint:
 
 ```console
-npx @archastro/quint-refinements new bank-refinement
+npx quint-refinements new bank-refinement
 cd bank-refinement
 # Edit model.qnt until Quint accepts the model.
 npx quint-refinements compile model.qnt
