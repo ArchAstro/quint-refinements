@@ -638,7 +638,7 @@ unsafe_code = "forbid"
         check: "quint-refinements compile model.qnt --check",
       },
       dependencies: {
-        "@archastro/quint-refinements": `^${packageMetadata.version}`,
+        "quint-refinements": `^${packageMetadata.version}`,
       },
     }, null, 2)}\n`],
     ["model.qnt", `module model {
