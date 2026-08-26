@@ -1,6 +1,6 @@
 # quint-refinements
 
-`quint-refinements` checks that a Rust implementation follows scenarios generated from a [Quint](https://quint-lang.org/) model. A Rust primitive declares which Quint action or ordered action sequence it owns, executes once, returns observable snapshots, and the crate evaluates every generated guard and next-state obligation.
+`quint-refinements` checks that a Rust implementation follows scenarios generated from a [Quint](https://quint.sh/) model. A Rust primitive declares which Quint action or ordered action sequence it owns, executes once, returns observable snapshots, and the crate evaluates every generated guard and next-state obligation.
 
 ```text
 Quint model -> generated JSON -> ownership scheduler -> real Rust command
@@ -38,8 +38,11 @@ Implement `PrimitiveDriver` or `AsyncPrimitiveDriver`, then pass the generated s
 
 ## Examples
 
+New to refinement checking? Follow the [bank tutorial](docs/tutorial.md), which mirrors Quint's Getting Started flow and ends in a complete copyable project.
+
 | Example | Demonstrates | Command |
 |---|---|---|
+| `bank_account` | Step-by-step standalone project from Quint model to Rust refinement test | `cargo run --manifest-path examples/bank_account/Cargo.toml` |
 | `two_phase_commit` | Full Quint model, generated traces, fixtures, 1-to-N ownership, exact state assignments | `cargo run --example two_phase_commit` |
 | `two_phase_commit_async` | The same scenario through the runtime-neutral async driver | `cargo run --example two_phase_commit_async` |
 | `ownership_records` | One-step ownership, aliases, compound sequences, deterministic aggregation | `cargo run --example ownership_records` |
