@@ -1,0 +1,30 @@
+{
+  "name": "@archastro/quint-refinements",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Quint trace generator distributed with the quint-refinements Rust crate",
+  "license": "MIT",
+  "repository": "github:ArchAstro/quint-refinements",
+  "type": "module",
+  "files": [
+    "harness",
+    "expression_vocabulary.json"
+  ],
+  "exports": {
+    "./harness/generate.mjs": "./harness/generate.mjs",
+    "./expression_vocabulary.json": "./expression_vocabulary.json"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check:traces": "node examples/two_phase_commit/generate-traces.mjs --check",
+    "generate:traces": "node examples/two_phase_commit/generate-traces.mjs"
+  },
+  "devDependencies": {
+    "@informalsystems/quint": "0.32.0"
+  },
+  "overrides": {
+    "adm-zip": "0.6.0"
+  }
+}

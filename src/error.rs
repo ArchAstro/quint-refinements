@@ -8,6 +8,7 @@ pub struct Error {
 }
 
 impl Error {
+    /// Creates an error with a human-readable diagnostic.
     #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
         Self {
@@ -15,6 +16,7 @@ impl Error {
         }
     }
 
+    /// Returns the diagnostic message.
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message

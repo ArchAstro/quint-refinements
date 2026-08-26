@@ -1,0 +1,26 @@
+name: Bug report
+description: Report incorrect refinement, generation, or evaluation behavior
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest Quint model, generated artifact, Rust adapter, and command that reproduce the problem.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: quint-refinements, Rust, Node.js, and Quint versions
+    validations:
+      required: true

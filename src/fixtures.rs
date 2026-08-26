@@ -12,7 +12,9 @@ use crate::evaluate::{NormalizedRuntimeEvidence, RuntimeValue};
 /// [`FixtureTable::validate`] compares [`QuintFixture::artifact_json`] to the
 /// generated JSON so field drift fails closed.
 pub trait QuintFixture {
+    /// Returns the JSON shape expected in the generated artifact.
     fn artifact_json(&self) -> Value;
+    /// Returns the corresponding normalized evaluator value.
     fn runtime_value(&self) -> RuntimeValue;
 }
 
@@ -49,12 +51,14 @@ impl QuintFixture for &str {
 /// Named Quint fixtures backed by Rust values, one namespace per model module.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FixtureTable {
+    /// Quint module namespace containing these fixture names.
     pub namespace: String,
     values: BTreeMap<String, RuntimeValue>,
     json: BTreeMap<String, Value>,
 }
 
 impl FixtureTable {
+    /// Creates an empty table for a Quint module namespace.
     #[must_use]
     pub fn new(namespace: impl Into<String>) -> Self {
         Self {
@@ -64,6 +68,7 @@ impl FixtureTable {
         }
     }
 
+    /// Adds one named fixture value.
     #[must_use]
     pub fn insert(mut self, name: &str, fixture: &impl QuintFixture) -> Self {
         self.values.insert(name.to_owned(), fixture.runtime_value());
@@ -71,6 +76,7 @@ impl FixtureTable {
         self
     }
 
+    /// Adds one named finite set of fixture values.
     #[must_use]
     pub fn insert_set<F: QuintFixture>(mut self, name: &str, members: &[F]) -> Self {
         let mut json_members = members
@@ -88,21 +94,25 @@ impl FixtureTable {
         self
     }
 
+    /// Looks up a fixture by its generated Quint name.
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&RuntimeValue> {
         self.values.get(name)
     }
 
+    /// Returns whether the table owns a generated Quint name.
     #[must_use]
     pub fn contains_name(&self, name: &str) -> bool {
         self.values.contains_key(name)
     }
 
+    /// Returns all owned fixture names in deterministic order.
     #[must_use]
     pub fn names(&self) -> Vec<&str> {
         self.values.keys().map(String::as_str).collect()
     }
 
+    /// Returns fixture names in generated retrieve-dependency form.
     #[must_use]
     pub fn retrieve_names(&self) -> Vec<String> {
         self.names()
@@ -175,7 +185,9 @@ impl FixtureTable {
 
 /// Snapshot evidence with fixture names in front of live `state`.
 pub struct BoundEvidence<'a, E> {
+    /// Stable model fixtures resolved before live evidence.
     pub fixtures: &'a FixtureTable,
+    /// Live implementation snapshot.
     pub snapshot: &'a E,
 }
 
