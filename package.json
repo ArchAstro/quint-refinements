@@ -4,6 +4,7 @@
   "private": false,
   "description": "Generate runtime refinement adapters and conformance traces from Quint models",
   "license": "MIT",
+  "packageManager": "npm@11.19.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ArchAstro/quint-refinements.git"
