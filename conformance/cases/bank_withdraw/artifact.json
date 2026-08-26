@@ -9,8 +9,12 @@
       "bank.withdraw"
     ],
     "expressionOperators": [
+      "Rec",
       "eq",
-      "field"
+      "field",
+      "igt",
+      "igte",
+      "isub"
     ],
     "expressionNames": [
       "state"
@@ -155,7 +159,7 @@
           ],
           "next": [
             {
-              "scope": "model",
+              "scope": "runtime",
               "expression": {
                 "kind": "call",
                 "operator": "assign",
@@ -199,7 +203,15 @@
                     ]
                   }
                 ]
-              }
+              },
+              "dependencies": [
+                "name:state",
+                "operator:Rec",
+                "operator:assign",
+                "operator:field",
+                "operator:isub",
+                "path:state.balance"
+              ]
             }
           ]
         },

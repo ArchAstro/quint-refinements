@@ -1,88 +1,44 @@
-# Tutorial: check a Rust bank against Quint
+# Tutorial: generate a Rust refinement project from Quint
 
-This tutorial continues the bank example from Quint's [Getting Started guide](https://quint.sh/docs/getting-started). That guide finds an overdraft bug in the model, fixes the withdrawal guard, and verifies the model. Here we use the same progression to find the equivalent bug in Rust:
+This tutorial follows Quint's [Getting Started guide](https://quint.sh/docs/getting-started): create a project, write a bank specification, find a violation, fix it, and verify the result. The difference is the boundary being checked. Quint verifies the model; `quint-refinements` generates the code needed to check that Rust follows that model.
 
-1. Install the tools.
-2. Write the verified withdrawal specification.
-3. Generate a refinement scenario.
-4. Connect the scenario to Rust.
-5. Find an implementation violation.
-6. Fix the implementation.
-7. Verify the result in a repeatable test.
+You will write two things:
 
-The completed, runnable project is in [`examples/bank_account`](../examples/bank_account).
+1. The Quint specification.
+2. The Rust bank implementation.
+
+The trace configuration, ownership records, action dispatch, expression registry, and refinement runner are generated from Quint's own AST.
+
+The completed project is in [`examples/rust/bank_account`](../examples/rust/bank_account).
 
 ```text
-Quint withdraw(4) expects balance 10 -> 6
-             |
-             v
-       generated trace
-             |
-             v
-      Rust Bank::withdraw(4)
-             |
-             v
-       observed snapshot
-             |
-             v
-       guard and next-state checks
+model.qnt
+   |
+   |  npx quint-refinements compile model.qnt
+   v
+Quint AST -> generated scenario + generated Rust adapter
+                                      |
+                                      v
+                              your Bank implementation
+                                      |
+                                      v
+                           guards and next state agree
 ```
 
-## 1. Install the tools
+## 1. Create the project
 
-You need Node.js 22 or newer and Rust 1.85 or newer. Create a project:
+You need Node.js 22 or newer and Rust 1.85 or newer.
 
 ```console
-cargo new bank-refinement-tutorial
-cd bank-refinement-tutorial
+npx @archastro/quint-refinements new bank-refinement
+cd bank-refinement
 ```
 
-Replace `Cargo.toml` with:
+`new` creates the Cargo and npm manifests, installs the pinned Quint toolchain, and adds a starter `model.qnt`. It does not create generator configuration files.
 
-```toml
-[package]
-name = "bank-refinement-tutorial"
-version = "0.1.0"
-edition = "2024"
-publish = false
+## 2. Write the Quint specification
 
-[dependencies]
-quint-refinements = { git = "https://github.com/ArchAstro/quint-refinements" }
-```
-
-Create `package.json`:
-
-```json
-{
-  "name": "bank-refinement-tutorial",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "generate": "node generate-traces.mjs",
-    "check": "node generate-traces.mjs --check"
-  },
-  "dependencies": {
-    "@archastro/quint-refinements": "github:ArchAstro/quint-refinements",
-    "@informalsystems/quint": "0.32.0"
-  },
-  "overrides": {
-    "adm-zip": "0.6.0"
-  }
-}
-```
-
-Install the JavaScript dependencies:
-
-```console
-npm install
-```
-
-The completed in-repository example uses local `path` and `file` dependencies instead of Git dependencies. This lets its tests exercise the current checkout.
-
-## 2. Write the specification
-
-Create `bank.qnt`:
+Replace `model.qnt` with:
 
 ```quint
 /// One-account version of the bank from Quint's Getting Started tutorial.
@@ -111,152 +67,55 @@ module bank {
 }
 ```
 
-The `@conformance` directive gives this scenario a stable capability name. `withdrawRun` starts with 10, withdraws 4, and requires the next state to contain 6.
+Get the Quint model working before connecting Rust. The `@conformance` directive marks `withdrawRun` for generated refinement coverage.
 
-## 3. Generate the refinement scenario
+## 3. Compile the refinement boundary
 
-The generator needs the model entry points and the runtime values that Rust can expose. Create `app-config.mjs`:
-
-```javascript
-import {
-  createItfActionNextHook,
-  defineConformanceApp,
-} from "@archastro/quint-refinements/harness/generate.mjs";
-
-const retrieve = new Set([
-  "name:state",
-  "operator:assign",
-  "operator:eq",
-  "operator:field",
-  "operator:igt",
-  "operator:igte",
-  "operator:isub",
-  "path:state.balance",
-]);
-
-export const bankApp = defineConformanceApp({
-  actions: ["withdraw"],
-  capabilities: ["bank.withdraw"],
-  expressionOperators: ["eq", "field"],
-  expressionNames: ["state"],
-  modelOnlyNames: [],
-  modelOnlyOperators: [],
-  initializers: ["init"],
-  fixtureImports: [],
-  requireObserve: true,
-  attachActionNext: createItfActionNextHook(),
-  runtimeObservationDependencyDigest:
-    "sha256:54f2836ccff5e30c0e7a95fc7b7c711d1c4e567d4dd05074d6aa31776ed268cc",
-  retrieveForCapabilities: () => new Set(retrieve),
-  actionRetrieveForCapabilities: () => new Set(retrieve),
-  sources: () => [{
-    source: "bank.qnt",
-    module: "bank",
-    init: "init",
-    step: "withdraw",
-  }],
-});
-```
-
-The dependency digest is intentional. If a model edit changes what the adapter must expose, generation stops and prints the new digest for review.
-
-Create `generate-traces.mjs`:
-
-```javascript
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-import { generateConformanceTraces } from "@archastro/quint-refinements/harness/generate.mjs";
-import { bankApp } from "./app-config.mjs";
-
-const projectDir = path.dirname(fileURLToPath(import.meta.url));
-const outputPath = path.join(projectDir, "traces.json");
-const check = process.argv.slice(2).includes("--check");
-
-const traces = generateConformanceTraces({
-  root: projectDir,
-  specDir: projectDir,
-  app: bankApp,
-  fullyRefinedRuns: new Set(["bank.withdrawRun"]),
-});
-const generated = `${JSON.stringify(traces, null, 2)}\n`;
-
-if (check) {
-  if (!fs.existsSync(outputPath) || fs.readFileSync(outputPath, "utf8") !== generated) {
-    throw new Error("bank traces drifted; run npm run generate");
-  }
-  console.log("bank traces match the Quint model");
-} else {
-  fs.writeFileSync(outputPath, generated);
-  console.log("wrote traces.json");
-}
-```
-
-Generate the checked-in artifact:
+Run:
 
 ```console
-npm run generate
+npx quint-refinements compile model.qnt
 ```
 
-`traces.json` now contains the concrete `withdraw(4)` action, its two guards, its complete next-state assignment, and the initial Quint state.
+The command invokes the pinned `quint parse` and `quint compile` commands. It derives the integration from Quint's parsed declarations and expressions.
 
-## 4. Connect the scenario to Rust
+| Generated file | Contents |
+|---|---|
+| `quint-refinements.json` | Concrete run, initial state, action arguments, guards, and next-state assignments |
+| `src/generated_refinement.rs` | Ownership records, action dispatch, expression registry, and refinement runner |
+| `src/main.rs` | A first-run implementation scaffold with one hook per Quint action |
 
-The completed [`src/main.rs`](../examples/bank_account/src/main.rs) contains four pieces. Add them to your `src/main.rs` in this order. Start with the imports, generated artifact, and reviewed expression registry:
+`src/generated_refinement.rs` is replaced every time you compile. `src/main.rs` is created only when it does not exist, so later compilation never overwrites your implementation.
+
+For this model, the generated Rust trait asks for three domain decisions:
 
 ```rust
+pub trait Implementation: Sized {
+    type Evidence: NormalizedRuntimeEvidence + Clone;
+
+    fn from_initial_state(initial_state: &RuntimeValue) -> Result<Self, String>;
+    fn snapshot(&self) -> Self::Evidence;
+    fn withdraw(&mut self, arguments: &[RuntimeValue]) -> Result<(), String>;
+}
+```
+
+The action name, hook, arguments, ownership record, and runner came from `model.qnt`. You implement the command and expose its observable state.
+
+The generated path maps each Quint action to the capability `<module>.<action>`. Use the lower-level generator API when one production primitive intentionally owns several Quint actions.
+
+## 4. Connect the Rust implementation
+
+Replace `src/main.rs` with the following. Start with an intentional bug in `Bank::withdraw`: it adds the amount instead of subtracting it.
+
+```rust
+mod generated_refinement;
+
 use std::collections::BTreeMap;
 
-use quint_refinements::{
-    ConformanceArtifact, FixtureTable, NormalizedRuntimeEvidence, OwnershipTable,
-    PrimitiveDriver, ResolvedAction, RuntimeValue, collect_ownership_records, quint_ownership,
-    refine_scenario,
-};
+use generated_refinement::{Implementation, refine_all};
+use quint_refinements::{NormalizedRuntimeEvidence, RuntimeValue};
 
-const TRACES: &str = include_str!("../traces.json");
-
-const RETRIEVE: &[&str] = &[
-    "name:state",
-    "operator:assign",
-    "operator:eq",
-    "operator:field",
-    "operator:igt",
-    "operator:igte",
-    "operator:isub",
-    "path:state.balance",
-];
-```
-
-### 4.1 Record action ownership
-
-An ownership record maps a stable implementation command to one or more ordered Quint actions:
-
-```rust
-quint_ownership! {
-    const WITHDRAW = {
-        primitive: "bank.withdraw",
-        refines: ["withdraw"],
-        aliases: [],
-        observations: ["path:state.balance"],
-        retrieve: ["name:state"],
-    };
-}
-
-const OWNERSHIP: OwnershipTable = OwnershipTable {
-    owner: "bank-refinement-tutorial",
-    descriptors: &[WITHDRAW],
-};
-```
-
-The scheduler fails if a generated action has no owner or has multiple owners.
-
-### 4.2 Expose an observable snapshot
-
-The evaluator reads named Quint values from implementation snapshots:
-
-```rust
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 struct Snapshot {
     balance: i64,
 }
@@ -280,29 +139,12 @@ impl NormalizedRuntimeEvidence for Snapshot {
         None
     }
 }
-```
 
-This adapter exposes the complete model state as `state`. The evaluator compares it structurally; it does not serialize and compare debug strings.
-
-### 4.3 Drive the real command
-
-Start with an intentionally incorrect implementation:
-
-```rust
-#[derive(Debug)]
 struct Bank {
     balance: i64,
 }
 
 impl Bank {
-    fn new(balance: i64) -> Self {
-        Self { balance }
-    }
-
-    fn snapshot(&self) -> Snapshot {
-        Snapshot { balance: self.balance }
-    }
-
     fn withdraw(&mut self, amount: i64) -> Result<(), String> {
         if amount <= 0 {
             return Err("withdrawal must be positive".to_owned());
@@ -314,117 +156,71 @@ impl Bank {
         Ok(())
     }
 }
-```
 
-`PrimitiveDriver` receives the argument generated from Quint, invokes the real command once, and returns one snapshot for the owned action:
-
-```rust
-impl PrimitiveDriver for Bank {
+impl Implementation for Bank {
     type Evidence = Snapshot;
 
-    fn run_primitive(
-        &mut self,
-        primitive: &str,
-        actions: &[ResolvedAction],
-    ) -> Result<Vec<Self::Evidence>, String> {
-        if primitive != "bank.withdraw" {
-            return Err(format!("unknown primitive {primitive}"));
-        }
-        let [action] = actions else {
-            return Err(format!("withdraw expects one Quint action; got {actions:?}"));
+    fn from_initial_state(initial_state: &RuntimeValue) -> Result<Self, String> {
+        let RuntimeValue::Record(state) = initial_state else {
+            return Err(format!("expected bank record, got {initial_state:?}"));
         };
-        if action.name != "withdraw" {
-            return Err(format!("withdraw primitive cannot refine {}", action.name));
-        }
-        let [RuntimeValue::Int(amount)] = action.arguments.as_slice() else {
-            return Err(format!("withdraw expects one integer argument: {action:?}"));
+        let Some(RuntimeValue::Int(balance)) = state.get("balance") else {
+            return Err(format!("bank state has no integer balance: {state:?}"));
         };
-
-        self.withdraw(*amount)?;
-        Ok(vec![self.snapshot()])
+        Ok(Self { balance: *balance })
     }
-}
-```
 
-### 4.4 Run the refinement loop
+    fn snapshot(&self) -> Self::Evidence {
+        Snapshot { balance: self.balance }
+    }
 
-Parse the artifact, select the scenario, validate ownership, and run it:
-
-```rust
-fn refine_withdraw_run() -> Result<(usize, i64), String> {
-    let artifact = ConformanceArtifact::parse(TRACES).map_err(|error| error.to_string())?;
-    let scenario = artifact
-        .scenarios
-        .iter()
-        .find(|scenario| scenario.name == "withdrawRun")
-        .ok_or_else(|| "withdrawRun missing from traces.json".to_owned())?;
-    let ownership = collect_ownership_records(&[OWNERSHIP]).map_err(|error| error.to_string())?;
-    let fixtures = FixtureTable::new("bank");
-    fixtures.validate(&artifact).map_err(|error| error.to_string())?;
-    let mut bank = Bank::new(10);
-
-    let evaluated_obligations = refine_scenario(
-        scenario,
-        bank.snapshot(),
-        &ownership,
-        RETRIEVE,
-        &fixtures,
-        &mut bank,
-    )?;
-
-    Ok((evaluated_obligations, bank.balance))
+    fn withdraw(&mut self, arguments: &[RuntimeValue]) -> Result<(), String> {
+        let [RuntimeValue::Int(amount)] = arguments else {
+            return Err(format!("withdraw expects one integer argument: {arguments:?}"));
+        };
+        self.withdraw(*amount)
+    }
 }
 
 fn main() {
-    match refine_withdraw_run() {
-        Ok((evaluated_obligations, final_balance)) => println!(
-            "bank refinement passed: {} obligations, final balance {}",
-            evaluated_obligations, final_balance
-        ),
+    match refine_all::<Bank>() {
+        Ok(results) => {
+            for result in results {
+                println!(
+                    "{} refined {} obligations; final balance {}",
+                    result.scenario,
+                    result.evaluated_obligations,
+                    result.implementation.balance,
+                );
+            }
+        }
         Err(error) => {
             eprintln!("bank refinement failed: {error}");
             std::process::exit(1);
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::refine_withdraw_run;
-
-    #[test]
-    fn generated_quint_withdrawal_drives_the_real_bank_and_checks_its_snapshot() {
-        // Setup: traces.json contains the scenario generated from bank.qnt.
-        // Boundary: the scheduler maps `withdraw` to `Bank::withdraw`.
-        let report = refine_withdraw_run().expect("the Rust bank refines Quint withdrawRun");
-
-        // Outcome: all obligations passed and the real balance changed.
-        assert_eq!(report, (3, 6));
-    }
-}
 ```
-
-The `RETRIEVE` registry is the Rust-side allowlist for the generated expressions.
 
 ## 5. Find the implementation violation
 
-Run the buggy implementation:
+Run:
 
 ```console
 cargo run
 ```
 
-The refinement fails at the exact field that diverged:
+The generated adapter passes Quint's `4` to `Bank::withdraw`, snapshots the real bank, and evaluates the generated assignment:
 
 ```text
 bank refinement failed: bank.withdrawRun:withdraw next: assign state diverged at state.balance expected Int(6), observed Int(14)
 ```
 
-The two guards passed: the amount was positive and the account had enough money. The command then returned a state that violated Quint's next-state assignment.
+No handwritten JavaScript or action registry sits between the model and this failure.
 
 ## 6. Fix the issue
 
-Change the command to subtract the withdrawal:
+Change the command to subtract the amount:
 
 ```rust
 self.balance -= amount;
@@ -439,39 +235,40 @@ cargo run
 The result is:
 
 ```text
-bank refinement passed: 3 obligations, final balance 6
+bank.withdrawRun refined 3 obligations; final balance 6
 ```
 
-## 7. Verify the result
+## 7. Verify generated and handwritten code
 
-Check that the committed trace still matches the model, then run the end-to-end Rust test:
+Append this test to `src/main.rs`:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::{Bank, refine_all};
+
+    #[test]
+    fn generated_quint_withdrawal_drives_the_real_bank_and_checks_its_snapshot() {
+        // Setup: the compile command generated the scenario and Rust adapter.
+        // Boundary: generated ownership passes `withdraw(4)` to the real Bank.
+        let mut results = refine_all::<Bank>().expect("the Rust bank refines withdrawRun");
+        let result = results.pop().expect("withdrawRun result");
+
+        // Outcome: every generated guard and assignment passed against the real snapshot.
+        assert_eq!(result.evaluated_obligations, 3);
+        assert_eq!(result.implementation.balance, 6);
+        assert!(results.is_empty(), "only withdrawRun should be generated");
+    }
+}
+```
+
+Then run:
 
 ```console
-npm run check
+npx quint-refinements compile model.qnt --check
 cargo test
 ```
 
-The canonical test is `generated_quint_withdrawal_drives_the_real_bank_and_checks_its_snapshot` in [`src/main.rs`](../examples/bank_account/src/main.rs). It crosses these boundaries:
+The compile check fails if either generated file drifts from the Quint AST. The canonical test `generated_quint_withdrawal_drives_the_real_bank_and_checks_its_snapshot` crosses the generated ownership and driver boundary, invokes the real Rust withdrawal, evaluates all generated obligations, and asserts the final balance is 6.
 
-1. Reads the checked-in scenario generated by the real Quint CLI.
-2. Resolves `withdraw` through the ownership scheduler.
-3. Passes Quint's generated amount to the real Rust command.
-4. Evaluates the generated guards and next-state assignment against the returned snapshot.
-5. Asserts the externally visible final balance is 6.
-
-For CI, run both commands whenever the model, generator configuration, ownership records, implementation command, or evidence adapter changes.
-
-## Copy the completed project
-
-From a clone of this repository:
-
-```console
-cp -R examples/bank_account examples/my-bank-refinement
-cd examples/my-bank-refinement
-npm install
-npm run check
-cargo test
-cargo run
-```
-
-The copied `Cargo.toml` and `package.json` use paths back to the repository root. Replace those two local dependencies with the Git dependencies from step 1 if you move the project outside this repository.
+The project now has one source of integration structure: `model.qnt`. Edit the model, compile again, and Rust compilation identifies any newly generated implementation hooks you still need to provide.

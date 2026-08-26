@@ -1,7 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
+    directory: /bindings/rust
     schedule:
       interval: weekly
   - package-ecosystem: npm

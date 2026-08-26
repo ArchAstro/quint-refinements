@@ -1,29 +1,48 @@
 {
   "name": "@archastro/quint-refinements",
   "version": "0.1.0",
-  "private": true,
-  "description": "Quint trace generator distributed with the quint-refinements Rust crate",
+  "private": false,
+  "description": "Generate runtime refinement adapters and conformance traces from Quint models",
   "license": "MIT",
   "repository": "github:ArchAstro/quint-refinements",
   "type": "module",
+  "bin": {
+    "quint-refinements": "./packages/compiler/cli.mjs"
+  },
   "files": [
-    "harness",
-    "expression_vocabulary.json"
+    "packages/compiler/cli.mjs",
+    "packages/compiler/generate.mjs",
+    "packages/compiler/expression_vocabulary.json",
+    "packages/compiler/README.md",
+    "conformance/artifact.schema.json"
   ],
   "exports": {
-    "./harness/generate.mjs": "./harness/generate.mjs",
-    "./expression_vocabulary.json": "./expression_vocabulary.json"
+    "./generate.mjs": "./packages/compiler/generate.mjs",
+    "./harness/generate.mjs": "./packages/compiler/generate.mjs",
+    "./expression_vocabulary.json": "./packages/compiler/expression_vocabulary.json",
+    "./artifact.schema.json": "./conformance/artifact.schema.json"
   },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "check:traces": "node examples/two_phase_commit/generate-traces.mjs --check",
-    "generate:traces": "node examples/two_phase_commit/generate-traces.mjs"
+    "test": "npm run test:compiler && npm run check:schema && npm run check:traces && npm run check:bank && npm run check:corpus",
+    "test:compiler": "node --test packages/compiler/cli.test.mjs",
+    "check:schema": "cmp packages/compiler/expression_vocabulary.json bindings/rust/expression_vocabulary.json",
+    "check:traces": "node bindings/rust/examples/two_phase_commit/generate-traces.mjs --check",
+    "generate:traces": "node bindings/rust/examples/two_phase_commit/generate-traces.mjs",
+    "check:bank": "node packages/compiler/cli.mjs compile examples/rust/bank_account/bank.qnt --check",
+    "check:corpus": "node conformance/validate.mjs && cmp examples/rust/bank_account/quint-refinements.json conformance/cases/bank_withdraw/artifact.json && cmp bindings/rust/examples/two_phase_commit/traces.json conformance/cases/two_phase_commit/artifact.json"
   },
-  "devDependencies": {
+  "dependencies": {
     "@informalsystems/quint": "0.32.0"
   },
+  "devDependencies": {
+    "ajv": "8.20.0"
+  },
+  "bundleDependencies": [
+    "@informalsystems/quint"
+  ],
   "overrides": {
     "adm-zip": "0.6.0"
   }

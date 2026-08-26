@@ -1,20 +1,20 @@
 [targets.test]
-command = "cargo test --locked"
-depends_on = ["//self:check-generated-example"]
+command = "npm test"
+depends_on = ["//self:deps"]
 
 [targets.test-ci]
-command = "cargo test --locked --all-targets"
-depends_on = ["//self:check-generated-example"]
+command = "npm test"
+depends_on = ["//self:deps"]
 
 [targets.deps]
 command = "npm ci"
 
 [targets.check-generated-example]
-command = "node examples/two_phase_commit/generate-traces.mjs --check"
+command = "npm test"
 depends_on = ["//self:deps"]
 
 [targets.lint]
-command = "cargo clippy --all-targets -- -D warnings"
+command = "npm audit --audit-level=high"
 
 [targets.build]
-command = "cargo build --locked"
+command = "npm pack --dry-run"
