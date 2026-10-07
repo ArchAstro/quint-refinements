@@ -43,7 +43,7 @@
     "check:corpus": "node conformance/validate.mjs && cmp examples/rust/bank_account/quint-refinements.json conformance/cases/bank_withdraw/artifact.json && cmp bindings/rust/examples/two_phase_commit/traces.json conformance/cases/two_phase_commit/artifact.json"
   },
   "dependencies": {
-    "@informalsystems/quint": "0.32.0"
+    "@informalsystems/quint": "0.33.0"
   },
   "devDependencies": {
     "ajv": "8.20.0"
