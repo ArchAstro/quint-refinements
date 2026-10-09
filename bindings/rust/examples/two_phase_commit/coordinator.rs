@@ -6,8 +6,8 @@
 use std::collections::BTreeMap;
 
 use quint_refinements::{
-    FixtureTable, NormalizedRuntimeEvidence, QuintFixture, ResolvedAction, RuntimeValue,
-    collect_ownership_records, refine_scenario_async,
+    ConformanceArtifact, FixtureTable, NormalizedRuntimeEvidence, QuintFixture, ResolvedAction,
+    RuntimeValue, collect_ownership_records, refine_scenario_async,
 };
 
 #[path = "generated.rs"]
@@ -233,8 +233,9 @@ impl Implementation for Coordinator {
         self.snapshot()
     }
 
-    fn fixtures() -> FixtureTable {
-        fixture_table()
+    /// `statuses` is the Rust enum, so a new variant on either side fails here.
+    fn fixtures(_artifact: &ConformanceArtifact) -> Result<FixtureTable, String> {
+        Ok(fixture_table())
     }
 
     fn begin(&mut self, _arguments: &[RuntimeValue]) -> Result<(), String> {

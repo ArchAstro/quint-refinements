@@ -31,10 +31,12 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm test
-      - name: Check the standalone bank tutorial
+      - name: Check the standalone guide projects
         run: |
-          cargo test --locked --manifest-path examples/rust/bank_account/Cargo.toml
-          cargo run --locked --manifest-path examples/rust/bank_account/Cargo.toml
+          for project in bank_account shop_orders transaction_commit; do
+            cargo test --locked --manifest-path "examples/rust/${project}/Cargo.toml"
+            cargo run --locked --manifest-path "examples/rust/${project}/Cargo.toml"
+          done
       - run: cargo test --locked --manifest-path bindings/rust/Cargo.toml --all-targets
       - name: Run documented examples
         run: |
@@ -52,8 +54,12 @@ jobs:
           components: clippy, rustfmt
       - run: cargo fmt --manifest-path bindings/rust/Cargo.toml -- --check
       - run: cargo fmt --manifest-path examples/rust/bank_account/Cargo.toml -- --check
+      - run: cargo fmt --manifest-path examples/rust/shop_orders/Cargo.toml -- --check
+      - run: cargo fmt --manifest-path examples/rust/transaction_commit/Cargo.toml -- --check
       - run: cargo clippy --locked --manifest-path bindings/rust/Cargo.toml --all-targets -- -D warnings
       - run: cargo clippy --locked --manifest-path examples/rust/bank_account/Cargo.toml -- -D warnings
+      - run: cargo clippy --locked --manifest-path examples/rust/shop_orders/Cargo.toml -- -D warnings
+      - run: cargo clippy --locked --manifest-path examples/rust/transaction_commit/Cargo.toml -- -D warnings
       - run: cargo doc --locked --manifest-path bindings/rust/Cargo.toml --no-deps
         env:
           RUSTDOCFLAGS: -D warnings -D missing-docs

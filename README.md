@@ -41,7 +41,18 @@ When the implementation disagrees with the model, you get the divergence:
 bank.withdrawRun:withdraw next: assign state diverged at state.balance expected Int(6), observed Int(14)
 ```
 
-The [tutorial](docs/tutorial.md) walks through a bank account from model to caught bug in about ten minutes.
+## Learn it step by step
+
+Each page builds a complete project that CI compiles and runs.
+
+| | Page | You learn |
+|---|---|---|
+| 1 | [Tutorial: a bank account](docs/tutorial.md) | The whole loop: model, compile, implement, catch a bug |
+| 2 | [A shop](docs/guides/shop-orders.md) | Named constants, `if`/`else` actions, a model in two files |
+| 3 | [A transaction commit](docs/guides/one-command-many-actions.md) | `@primitive`, intermediate snapshots, binding constants to Rust |
+| 4 | [CI](docs/guides/ci.md) | `compile --check`, generating into an existing crate |
+
+Then: [how it works](docs/how-it-works.md) and [troubleshooting](docs/troubleshooting.md).
 
 ## What you write in the model
 
@@ -84,7 +95,7 @@ Model conventions the compiler enforces, with a message that says how to fix eac
 2. A scenario is `init.then(action)...` and ends with `all { assert(...), state' = state }`.
 3. All scenarios share one initializer.
 
-Scenarios may import their model from other `.qnt` files.
+Scenarios may import their model from other `.qnt` files, and Quint's own errors are reported with file, line and column.
 
 ## What you write in Rust
 
@@ -114,13 +125,16 @@ fn commit(&mut self, actions: &[ResolvedAction]) -> Result<Vec<Snapshot>, String
 
 Add or rename an action in the model, compile, and `cargo` tells you which method is missing. Nothing is registered by hand.
 
+Named constants in the model, such as `pure val coffee = { id: "coffee", total: 30 }`, need no Rust at all: a scenario that calls `pay(coffee)` hands your method the record. Override `fixtures` only to bind a constant to a production value, so the two cannot drift.
+
 ## What gets checked
 
 1. Every action in a scenario has an implementation command that owns it.
 2. Each command returns exactly one snapshot per action it owns.
 3. Every guard of every action holds on the snapshot before it.
 4. Every `state' = ...` assignment matches the complete snapshot after it.
-5. Named model constants the implementation binds as fixtures match their Rust values.
+5. An action with no single assignment (`if`/`else`, `any`) leaves exactly the state Quint reached.
+6. Constants you bind to Rust values match the model's.
 
 Which scenarios your product must cover stays your decision; write them as `@conformance` runs.
 
@@ -149,6 +163,8 @@ quint-refinements compile [spec.qnt] [--check] [--module <name>]
 | Example | Shows | Run |
 |---|---|---|
 | [`bank_account`](examples/rust/bank_account) | The tutorial's finished project | `cargo run --manifest-path examples/rust/bank_account/Cargo.toml` |
+| [`shop_orders`](examples/rust/shop_orders) | Constants, a branching action, model and scenarios in separate files | `cargo run --manifest-path examples/rust/shop_orders/Cargo.toml` |
+| [`transaction_commit`](examples/rust/transaction_commit) | `@primitive` and a constant bound to Rust, as a standalone project | `cargo run --manifest-path examples/rust/transaction_commit/Cargo.toml` |
 | [`two_phase_commit`](bindings/rust/examples/two_phase_commit) | `@primitive`: one `commit()` owning three actions, plus fixtures | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit` |
 | `two_phase_commit_async` | The same generated adapter through the async driver | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit_async` |
 

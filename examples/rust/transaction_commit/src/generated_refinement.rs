@@ -8,7 +8,7 @@ use quint_refinements::{
     quint_ownership, refine_scenario,
 };
 
-const TRACES: &str = include_str!("traces.json");
+const TRACES: &str = include_str!("../quint-refinements.json");
 
 quint_ownership! {
     const ABORT = {

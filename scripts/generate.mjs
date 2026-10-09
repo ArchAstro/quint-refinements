@@ -22,6 +22,12 @@ const models = [
     corpusCase: "bank_withdraw",
   },
   {
+    source: "examples/rust/shop_orders/model.qnt",
+  },
+  {
+    source: "examples/rust/transaction_commit/model.qnt",
+  },
+  {
     source: "bindings/rust/examples/two_phase_commit/model.qnt",
     artifact: "bindings/rust/examples/two_phase_commit/traces.json",
     rust: "bindings/rust/examples/two_phase_commit/generated.rs",
@@ -31,12 +37,14 @@ const models = [
 
 for (const { source, artifact, rust, corpusCase } of models) {
   const { artifactPath } = compileProject(source, { cwd: root, artifact, rust, check });
-  const generated = fs.readFileSync(artifactPath, "utf8");
-  const corpusPath = path.join(root, "conformance", "cases", corpusCase, "artifact.json");
-  if (!check) {
-    fs.writeFileSync(corpusPath, generated);
-  } else if (fs.readFileSync(corpusPath, "utf8") !== generated) {
-    throw new Error(`conformance case ${corpusCase} drifted; run npm run generate`);
+  if (corpusCase) {
+    const generated = fs.readFileSync(artifactPath, "utf8");
+    const corpusPath = path.join(root, "conformance", "cases", corpusCase, "artifact.json");
+    if (!check) {
+      fs.writeFileSync(corpusPath, generated);
+    } else if (fs.readFileSync(corpusPath, "utf8") !== generated) {
+      throw new Error(`conformance case ${corpusCase} drifted; run npm run generate`);
+    }
   }
   console.log(`${check ? "current" : "generated"}: ${source}`);
 }

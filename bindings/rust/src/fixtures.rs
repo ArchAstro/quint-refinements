@@ -68,6 +68,29 @@ impl FixtureTable {
         }
     }
 
+    /// Creates a table that gives every fixture in a namespace the value the
+    /// Quint model defines for it.
+    ///
+    /// Use this when the model's constants are plain data. Follow it with
+    /// [`FixtureTable::insert`] or [`FixtureTable::insert_set`] to hand a name
+    /// to a production value instead, so that value is checked against the model.
+    pub fn from_artifact(
+        namespace: impl Into<String>,
+        artifact: &ConformanceArtifact,
+    ) -> Result<Self, Error> {
+        let mut table = Self::new(namespace);
+        let Some(fixtures) = artifact.fixtures.get(&table.namespace) else {
+            return Ok(table);
+        };
+        for (name, json) in fixtures {
+            let value = RuntimeValue::from_itf_json(json)
+                .map_err(|error| Error::new(format!("fixture {name}: {error}")))?;
+            table.values.insert(name.clone(), value);
+            table.json.insert(name.clone(), json.clone());
+        }
+        Ok(table)
+    }
+
     /// Adds one named fixture value.
     #[must_use]
     pub fn insert(mut self, name: &str, fixture: &impl QuintFixture) -> Self {

@@ -4,7 +4,7 @@
   "private": false,
   "description": "Check a real implementation against a Quint model: generated scenarios, typed adapters and refinement checks",
   "license": "MIT",
-  "homepage": "https://github.com/ArchAstro/quint-refinements#readme",
+  "homepage": "https://github.com/ArchAstro/quint-refinements/blob/main/docs/README.md",
   "bugs": "https://github.com/ArchAstro/quint-refinements/issues",
   "keywords": [
     "quint",
@@ -45,8 +45,9 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "test": "npm run test:compiler && npm run check:schema && npm run check:generated && npm run check:corpus",
+    "test": "npm run test:compiler && npm run test:docs && npm run check:schema && npm run check:generated && npm run check:corpus",
     "test:compiler": "node --test packages/compiler/cli.test.mjs",
+    "test:docs": "node --test docs/docs.test.mjs",
     "check:schema": "cmp packages/compiler/expression_vocabulary.json bindings/rust/expression_vocabulary.json",
     "check:generated": "node scripts/generate.mjs --check",
     "check:corpus": "node conformance/validate.mjs",
