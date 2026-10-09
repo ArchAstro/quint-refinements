@@ -1,0 +1,11 @@
+[package]
+name = "shop-orders-guide"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+quint-refinements = { path = "../../../bindings/rust" }
+
+[lints.rust]
+unsafe_code = "forbid"

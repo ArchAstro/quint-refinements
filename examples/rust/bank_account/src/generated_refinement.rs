@@ -50,9 +50,13 @@ pub trait Implementation: Sized {
     /// Return the current observable implementation state.
     fn snapshot(&self) -> Self::Evidence;
 
-    /// Bind model fixtures to production values when the model declares fixtures.
-    fn fixtures() -> FixtureTable {
-        FixtureTable::new("bank")
+    /// Values for the constants the model names, such as `pure val limit = 3`.
+    ///
+    /// By default each constant has the value the model gives it. Override
+    /// this to bind a constant to a production value instead; the runner then
+    /// fails if that value and the model disagree.
+    fn fixtures(artifact: &ConformanceArtifact) -> Result<FixtureTable, String> {
+        FixtureTable::from_artifact("bank", artifact).map_err(|error| error.to_string())
     }
 
     /// Execute Quint action `withdraw` with its generated arguments.
@@ -126,7 +130,7 @@ pub fn artifact() -> Result<ConformanceArtifact, String> {
 pub fn refine_all<I: Implementation>() -> Result<Vec<ScenarioResult<I>>, String> {
     let artifact = artifact()?;
     let ownership = collect_ownership_records(&[OWNERSHIP]).map_err(|error| error.to_string())?;
-    let fixtures = I::fixtures();
+    let fixtures = I::fixtures(&artifact)?;
     fixtures
         .validate(&artifact)
         .map_err(|error| error.to_string())?;

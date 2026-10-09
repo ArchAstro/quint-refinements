@@ -8,62 +8,59 @@ use quint_refinements::{
     quint_ownership, refine_scenario,
 };
 
-const TRACES: &str = include_str!("traces.json");
+const TRACES: &str = include_str!("../quint-refinements.json");
 
 quint_ownership! {
-    const ABORT = {
-        primitive: "two_phase_commit.abort",
-        refines: ["abort"],
+    const PAY = {
+        primitive: "scenarios.pay",
+        refines: ["pay"],
         aliases: [],
-        observations: ["path:state.flushed", "path:state.status", "path:state.wal"],
+        observations: ["path:bagel.id", "path:bagel.total", "path:coffee.id", "path:coffee.total", "path:state.paid", "path:state.revenue"],
         retrieve: ["name:state"],
     };
 }
 
 quint_ownership! {
-    const BEGIN = {
-        primitive: "two_phase_commit.begin",
-        refines: ["begin"],
+    const REFUND = {
+        primitive: "scenarios.refund",
+        refines: ["refund"],
         aliases: [],
-        observations: ["path:state.flushed", "path:state.status", "path:state.wal"],
-        retrieve: ["name:state"],
-    };
-}
-
-quint_ownership! {
-    const COMMIT = {
-        primitive: "two_phase_commit.commit",
-        refines: ["prepare", "flushWal", "commitPrepared"],
-        aliases: [],
-        observations: ["path:state.flushed", "path:state.status", "path:state.wal"],
+        observations: ["path:bagel.id", "path:bagel.total", "path:coffee.id", "path:coffee.total", "path:state.paid", "path:state.revenue"],
         retrieve: ["name:state"],
     };
 }
 
 /// Which implementation command owns each Quint action.
 pub const OWNERSHIP: OwnershipTable = OwnershipTable {
-    owner: "two_phase_commit-generated-refinement",
-    descriptors: &[ABORT, BEGIN, COMMIT],
+    owner: "scenarios-generated-refinement",
+    descriptors: &[PAY, REFUND],
 };
 
 /// Everything the generated obligations may read from a snapshot.
 pub const RETRIEVE: &[&str] = &[
-    "name:Aborted",
-    "name:Committed",
+    "name:bagel",
+    "name:coffee",
     "name:state",
-    "name:statuses",
-    "operator:List",
     "operator:Rec",
-    "operator:append",
+    "operator:Set",
+    "operator:actionAll",
     "operator:assign",
     "operator:contains",
     "operator:eq",
+    "operator:exclude",
     "operator:field",
-    "operator:or",
-    "operator:with",
-    "path:state.flushed",
-    "path:state.status",
-    "path:state.wal",
+    "operator:iadd",
+    "operator:isub",
+    "operator:ite",
+    "operator:not",
+    "operator:size",
+    "operator:union",
+    "path:bagel.id",
+    "path:bagel.total",
+    "path:coffee.id",
+    "path:coffee.total",
+    "path:state.paid",
+    "path:state.revenue",
 ];
 
 /// Domain implementation connected to the generated Quint scenarios.
@@ -83,19 +80,14 @@ pub trait Implementation: Sized {
     /// this to bind a constant to a production value instead; the runner then
     /// fails if that value and the model disagree.
     fn fixtures(artifact: &ConformanceArtifact) -> Result<FixtureTable, String> {
-        FixtureTable::from_artifact("two_phase_commit", artifact).map_err(|error| error.to_string())
+        FixtureTable::from_artifact("scenarios", artifact).map_err(|error| error.to_string())
     }
 
-    /// Execute Quint action `abort` with its generated arguments.
-    fn abort(&mut self, arguments: &[RuntimeValue]) -> Result<(), String>;
+    /// Execute Quint action `pay` with its generated arguments.
+    fn pay(&mut self, arguments: &[RuntimeValue]) -> Result<(), String>;
 
-    /// Execute Quint action `begin` with its generated arguments.
-    fn begin(&mut self, arguments: &[RuntimeValue]) -> Result<(), String>;
-
-    /// Execute Quint actions `prepare`, `flushWal`, `commitPrepared` as one command.
-    ///
-    /// Return one snapshot taken after each action, in that order.
-    fn commit(&mut self, actions: &[ResolvedAction]) -> Result<Vec<Self::Evidence>, String>;
+    /// Execute Quint action `refund` with its generated arguments.
+    fn refund(&mut self, arguments: &[RuntimeValue]) -> Result<(), String>;
 }
 
 /// Result of refining one generated Quint run.
@@ -123,36 +115,25 @@ impl<I: Implementation> PrimitiveDriver for Driver<I> {
         actions: &[ResolvedAction],
     ) -> Result<Vec<Self::Evidence>, String> {
         match primitive {
-            "two_phase_commit.abort" => {
+            "scenarios.pay" => {
                 let [action] = actions else {
-                    return Err(format!("abort expects one Quint action; got {actions:?}"));
+                    return Err(format!("pay expects one Quint action; got {actions:?}"));
                 };
-                if action.name != "abort" {
-                    return Err(format!("abort primitive cannot refine {}", action.name));
+                if action.name != "pay" {
+                    return Err(format!("pay primitive cannot refine {}", action.name));
                 }
-                self.implementation.abort(&action.arguments)?;
+                self.implementation.pay(&action.arguments)?;
                 Ok(vec![self.implementation.snapshot()])
             }
-            "two_phase_commit.begin" => {
+            "scenarios.refund" => {
                 let [action] = actions else {
-                    return Err(format!("begin expects one Quint action; got {actions:?}"));
+                    return Err(format!("refund expects one Quint action; got {actions:?}"));
                 };
-                if action.name != "begin" {
-                    return Err(format!("begin primitive cannot refine {}", action.name));
+                if action.name != "refund" {
+                    return Err(format!("refund primitive cannot refine {}", action.name));
                 }
-                self.implementation.begin(&action.arguments)?;
+                self.implementation.refund(&action.arguments)?;
                 Ok(vec![self.implementation.snapshot()])
-            }
-            "two_phase_commit.commit" => {
-                let expected = ["prepare", "flushWal", "commitPrepared"];
-                if actions
-                    .iter()
-                    .map(|action| action.name.as_str())
-                    .ne(expected)
-                {
-                    return Err(format!("commit refines {expected:?}; got {actions:?}"));
-                }
-                self.implementation.commit(actions)
             }
             other => Err(format!("unknown generated primitive {other}")),
         }

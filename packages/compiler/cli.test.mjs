@@ -187,6 +187,111 @@ test("scenarios may import their model from another file", () => {
   });
 });
 
+const shopDirectory = path.join(repositoryRoot, "examples", "rust", "shop_orders");
+
+function compileShop(directory, edit = source => source) {
+  fs.copyFileSync(path.join(shopDirectory, "shop.qnt"), path.join(directory, "shop.qnt"));
+  writeModel(directory, edit(fs.readFileSync(path.join(shopDirectory, "model.qnt"), "utf8")));
+  const result = compileProject("model.qnt", { cwd: directory });
+  return {
+    ...result,
+    artifact: JSON.parse(fs.readFileSync(result.artifactPath, "utf8")),
+    rust: fs.readFileSync(result.generatedRustPath, "utf8"),
+  };
+}
+
+test("constants passed to actions take their value from the model", () => {
+  withTemporaryDirectory(directory => {
+    const { artifact, rust } = compileShop(directory);
+
+    // `bagel` appears only as an action argument, never in an observation.
+    assert.deepEqual(artifact.fixtures.scenarios, {
+      bagel: { id: "bagel", total: 12 },
+      coffee: { id: "coffee", total: 30 },
+    });
+    const pay = artifact.scenarios
+      .find(scenario => scenario.name === "payBothRun").steps
+      .filter(step => step.kind === "action");
+    assert.deepEqual(pay.map(step => step.arguments), [
+      [{ kind: "name", value: "coffee" }],
+      [{ kind: "name", value: "bagel" }],
+    ]);
+    // The generated default binds them, so the implementation declares nothing.
+    assert.match(rust, /FixtureTable::from_artifact\("scenarios", artifact\)/);
+  });
+});
+
+test("every generated obligation is checked at runtime", () => {
+  withTemporaryDirectory(directory => {
+    const { artifact } = compileShop(directory);
+
+    const scopes = artifact.scenarios.flatMap(scenario => scenario.steps).flatMap(step =>
+      [...(step.guards ?? []), ...(step.next ?? []), ...(step.assertions ?? [])]
+        .map(assertion => assertion.scope)
+    );
+    assert.ok(scopes.length > 0);
+    assert.deepEqual([...new Set(scopes)], ["runtime"]);
+  });
+});
+
+test("an action without a plain assignment is held to the state Quint reached", () => {
+  withTemporaryDirectory(directory => {
+    const { artifact } = compileShop(directory);
+
+    // `refund` is an if/else, so it has no single `state' = ...` conjunct.
+    const refunds = artifact.scenarios
+      .find(scenario => scenario.name === "refundRun").steps
+      .filter(step => step.action === "refund");
+    const expectedStates = refunds.map(step => {
+      assert.equal(step.next.length, 1);
+      const { operator, arguments: [target, value] } = step.next[0].expression;
+      assert.equal(operator, "assign");
+      assert.deepEqual(target, { kind: "name", value: "state" });
+      return value;
+    });
+    const emptyShop = {
+      kind: "call",
+      operator: "Rec",
+      arguments: [
+        { kind: "str", value: "paid" },
+        { kind: "call", operator: "Set", arguments: [] },
+        { kind: "str", value: "revenue" },
+        { kind: "int", value: 0 },
+      ],
+    };
+    assert.deepEqual(expectedStates, [emptyShop, emptyShop]);
+  });
+});
+
+test("an assertion may combine conditions with all { }", () => {
+  withTemporaryDirectory(directory => {
+    const { artifact } = compileShop(directory);
+
+    const observation = artifact.scenarios
+      .find(scenario => scenario.name === "refundRun").steps.at(-1);
+    assert.equal(observation.assertions[0].expression.operator, "actionAll");
+  });
+});
+
+test("a scenario file may hold further modules after the scenarios", () => {
+  withTemporaryDirectory(directory => {
+    const { project } = compileShop(directory, source => `${source}
+module exploration {
+  import shop.* from "./shop"
+  import scenarios.*
+
+  action step = any {
+    pay(coffee),
+    refund(coffee),
+  }
+}
+`);
+
+    assert.equal(project.module, "scenarios");
+    assert.deepEqual(project.fixtureImports, [{ module: "shop", source: "shop" }]);
+  });
+});
+
 test("models the runtime cannot check are rejected with the fix", () => {
   const cases = [
     [
@@ -211,6 +316,10 @@ test("models the runtime cannot check are rejected with the fix", () => {
     [
       twoPhaseCommitModel.replace("@primitive commit = [", "@primitive commit: ["),
       /malformed @primitive directive; write `@primitive name = \[firstAction, secondAction\]`/,
+    ],
+    [
+      bankModel.replace("state.balance >= amount,", "state.balance >= amoun,"),
+      /Quint rejected the model:\n  model\.qnt:13:22: \[QNT404\] Name 'amoun' not found/,
     ],
     [
       bankModel.replace("/// @conformance", "/// @conformance please"),

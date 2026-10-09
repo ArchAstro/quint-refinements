@@ -17,6 +17,18 @@ whole integration is generated from the model.
 - `/// @primitive name = [first, second]` in the module comment generates one
   implementation hook that owns an ordered sequence of Quint actions.
 - Scenarios may import their model from other `.qnt` files.
+- Named constants need no Rust: the generated `fixtures` default takes each
+  value from the model through the new `FixtureTable::from_artifact`. Override
+  it to bind a constant to a production value.
+- Constants may be passed as action arguments, and assertions may combine
+  conditions with `all { }`.
+- An action with no single `state' = ...` conjunct (`if`/`else`, `any`) is
+  held to the exact state Quint reached after it.
+- Every generated obligation is checked at runtime.
+- Model errors from Quint are reported with file, line and column.
+- Step-by-step guides for constants and branching, `@primitive`, and CI, with
+  how-it-works and troubleshooting pages. Guide code is quoted from example
+  projects that CI compiles and runs.
 - `compile` defaults to `model.qnt` and accepts `--artifact` and `--rust` to
   place generated files in an existing crate.
 - The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and

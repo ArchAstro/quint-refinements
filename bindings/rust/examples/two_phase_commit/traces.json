@@ -21,6 +21,7 @@
       "Rec",
       "Set",
       "Tup",
+      "actionAll",
       "append",
       "contains",
       "eq",

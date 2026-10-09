@@ -5,6 +5,9 @@ Run these in order:
 1. Follow [`../docs/tutorial.md`](../docs/tutorial.md), then run:
    `cargo run --manifest-path examples/rust/bank_account/Cargo.toml`
    - Builds a complete standalone bank project: a Quint model, the generated adapter, and a real Rust command.
+   Then the two guide projects, each built step by step in [`../docs`](../docs/README.md):
+   - `cargo run --manifest-path examples/rust/shop_orders/Cargo.toml`: named constants, an `if`/`else` action, a model in two files.
+   - `cargo run --manifest-path examples/rust/transaction_commit/Cargo.toml`: one `commit()` owning three actions, and a constant bound to a Rust value.
 2. `cargo run --manifest-path bindings/rust/Cargo.toml --example ownership_records`
    - Declares one-step ownership, aliases, and an ordered 1-to-N sequence.
 3. `cargo run --manifest-path bindings/rust/Cargo.toml --example fixture_ownership`

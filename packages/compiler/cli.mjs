@@ -10,6 +10,7 @@ import {
   conformanceDirective,
   defineConformanceApp,
   generateConformanceTraces,
+  observationDependencies,
   resolveQuintBinary,
 } from "./generate.mjs";
 
@@ -155,13 +156,26 @@ function parseQuint(sourcePath) {
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "quint-refinements-parse-"));
   const outputPath = path.join(temporaryDirectory, "parsed.json");
   try {
-    run(quintBinary(), ["parse", sourcePath, `--out=${outputPath}`], {
+    // Quint reports model errors in the output file and exits non-zero.
+    const result = spawnSync(quintBinary(), ["parse", sourcePath, `--out=${outputPath}`], {
       cwd: path.dirname(sourcePath),
-      capture: true,
+      encoding: "utf8",
     });
+    if (result.error) {
+      fail(`could not start Quint: ${result.error.message}`);
+    }
+    if (!fs.existsSync(outputPath)) {
+      fail(`Quint could not parse ${sourcePath}:\n${result.stdout ?? ""}${result.stderr ?? ""}`);
+    }
     const parsed = JSON.parse(fs.readFileSync(outputPath, "utf8"));
     if ((parsed.errors ?? []).length > 0) {
-      fail(parsed.errors.map(error => error.explanation ?? JSON.stringify(error)).join("\n"));
+      fail(`Quint rejected the model:\n${parsed.errors.map(error => {
+        const location = error.locs?.[0];
+        const where = location
+          ? `${path.relative(path.dirname(sourcePath), location.source)}:${location.start.line + 1}:${location.start.col + 1}: `
+          : "";
+        return `  ${where}${error.explanation ?? JSON.stringify(error)}`;
+      }).join("\n")}`);
     }
     return parsed;
   } finally {
@@ -224,6 +238,8 @@ export function inferProject(parsed, sourceName, requestedModule) {
         runActions.push(node.name);
       } else if (node?.kind === "app") {
         runActions.push(node.opcode);
+        // Arguments may name model constants, such as `pay(orderA)`.
+        (node.args ?? []).forEach(argument => collectAstVocabulary(argument, vocabulary));
       } else {
         fail(`${runDeclaration.name} contains an unsupported ${node?.kind ?? "unknown"} step`);
       }
@@ -332,12 +348,31 @@ export function inferProject(parsed, sourceName, requestedModule) {
     rustPrimitives.set(identifier, primitive.name);
   }
   const observationOperators = [...vocabulary.operators]
-    .filter(operator => !["actionAll", "assert", "assign"].includes(operator))
+    .filter(operator => !["assert", "assign"].includes(operator))
     .sort();
+
+  // Fixture values can mention constructors from any module the model imports,
+  // so the generator needs every one of them in scope to read the values back.
+  const sourceStem = path.basename(sourceName, ".qnt");
+  const fixtureImports = new Map();
+  for (const candidate of parsed.modules ?? []) {
+    for (const declaration of candidate.declarations) {
+      if (declaration.kind !== "import" || declaration.protoName === module.name) {
+        continue;
+      }
+      fixtureImports.set(declaration.protoName, {
+        module: declaration.protoName,
+        source: declaration.fromSource
+          ? declaration.fromSource.replace(/^\.\//, "").replace(/\.qnt$/, "")
+          : sourceStem,
+      });
+    }
+  }
 
   return {
     source: sourceName,
     module: module.name,
+    fixtureImports: [...fixtureImports.values()],
     initializer,
     step: sortedActions[0],
     actions: sortedActions,
@@ -459,9 +494,14 @@ pub trait Implementation: Sized {
     /// Return the current observable implementation state.
     fn snapshot(&self) -> Self::Evidence;
 
-    /// Bind model fixtures to production values when the model declares fixtures.
-    fn fixtures() -> FixtureTable {
-        FixtureTable::new(${rustString(project.module)})
+    /// Values for the constants the model names, such as \`pure val limit = 3\`.
+    ///
+    /// By default each constant has the value the model gives it. Override
+    /// this to bind a constant to a production value instead; the runner then
+    /// fails if that value and the model disagree.
+    fn fixtures(artifact: &ConformanceArtifact) -> Result<FixtureTable, String> {
+        FixtureTable::from_artifact(${rustString(project.module)}, artifact)
+            .map_err(|error| error.to_string())
     }
 
 ${traitMethods}
@@ -523,7 +563,7 @@ pub fn artifact() -> Result<ConformanceArtifact, String> {
 pub fn refine_all<I: Implementation>() -> Result<Vec<ScenarioResult<I>>, String> {
     let artifact = artifact()?;
     let ownership = collect_ownership_records(&[OWNERSHIP]).map_err(|error| error.to_string())?;
-    let fixtures = I::fixtures();
+    let fixtures = I::fixtures(&artifact)?;
     fixtures
         .validate(&artifact)
         .map_err(|error| error.to_string())?;
@@ -644,8 +684,86 @@ fn main() {
 `;
 }
 
+const call = (operator, ...arguments_) => ({ kind: "call", operator, arguments: arguments_ });
+
+// Turns one value from Quint's trace into the literal expression that denotes it.
+function traceLiteral(value, context) {
+  if (typeof value === "boolean") {
+    return { kind: "bool", value };
+  }
+  if (typeof value === "string") {
+    return { kind: "str", value };
+  }
+  if (typeof value === "number") {
+    return { kind: "int", value };
+  }
+  if (Array.isArray(value)) {
+    return call("List", ...value.map(item => traceLiteral(item, context)));
+  }
+  if (value && typeof value === "object") {
+    if (value["#bigint"] !== undefined) {
+      return { kind: "int", value: Number(value["#bigint"]) };
+    }
+    if (value["#set"]) {
+      return call("Set", ...value["#set"].map(item => traceLiteral(item, context)));
+    }
+    if (value["#tup"]) {
+      return call("Tup", ...value["#tup"].map(item => traceLiteral(item, context)));
+    }
+    if (value["#map"]) {
+      return call("Map", ...value["#map"].map(([key, item]) =>
+        call("Tup", traceLiteral(key, context), traceLiteral(item, context))
+      ));
+    }
+    if (typeof value.tag === "string" && "value" in value && Object.keys(value).length === 2) {
+      const unit = value.value?.["#tup"]?.length === 0;
+      if (value.tag === "Absent" && unit) {
+        return { kind: "name", value: "Absent" };
+      }
+      if (unit) {
+        return { kind: "str", value: value.tag };
+      }
+      const payload = traceLiteral(value.value, context);
+      return value.tag === "Present"
+        ? call("Present", payload)
+        : call("variant", { kind: "str", value: value.tag }, payload);
+    }
+    return call("Rec", ...Object.entries(value)
+      .filter(([key]) => key !== "#meta" && !key.startsWith("__"))
+      .flatMap(([key, item]) => [{ kind: "str", value: key }, traceLiteral(item, context)]));
+  }
+  fail(`${context}: Quint's trace holds a value the compiler cannot encode: ${JSON.stringify(value)}`);
+}
+
+// An action written with `any`, `nondet` or branching has no single
+// `state' = ...` conjunct to check. Its scenario is still deterministic, so the
+// state Quint reached after it is the obligation.
+function attachTraceNext(steps, itf, context) {
+  for (const step of steps) {
+    if (step.kind !== "action" || (step.next ?? []).length > 0) {
+      continue;
+    }
+    const after = itf?.states?.[step.index]?.state;
+    if (after === undefined) {
+      fail(`${context}: Quint produced no state after action ${step.action}`);
+    }
+    const expression = call(
+      "assign",
+      { kind: "name", value: "state" },
+      traceLiteral(after, `${context}:${step.action}`),
+    );
+    step.next = [{
+      scope: "runtime",
+      expression,
+      dependencies: observationDependencies(expression),
+    }];
+  }
+}
+
 function inferredApp(project) {
-  const retrieve = new Set(project.retrieve);
+  // A generated project checks every obligation at runtime: nothing is
+  // reserved for the model checker alone.
+  const everything = { has: () => true };
   return defineConformanceApp({
     actions: project.actions,
     capabilities: project.capabilities,
@@ -654,11 +772,23 @@ function inferredApp(project) {
     modelOnlyNames: [],
     modelOnlyOperators: [],
     initializers: [project.initializer],
-    fixtureImports: [],
+    fixtureImports: project.fixtureImports,
+    // Quint's REPL rejects a file whose later modules instantiate earlier
+    // ones. Fixture values only need the scenario module and what precedes it.
+    copySourceForFixtures: ({ source, sourceText }) => {
+      if (source !== project.source) {
+        return sourceText;
+      }
+      const starts = [...sourceText.matchAll(/^module\s+(\w+)/gm)];
+      const index = starts.findIndex(match => match[1] === project.module);
+      const next = starts[index + 1];
+      return index >= 0 && next ? sourceText.slice(0, next.index) : sourceText;
+    },
     requireObserve: true,
+    attachActionNext: attachTraceNext,
     inlineObservations: true,
-    retrieveForCapabilities: () => new Set(retrieve),
-    actionRetrieveForCapabilities: () => new Set(retrieve),
+    retrieveForCapabilities: () => everything,
+    actionRetrieveForCapabilities: () => everything,
     sources: () => [{
       source: project.source,
       module: project.module,
