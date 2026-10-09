@@ -66,6 +66,10 @@ export function defineConformanceApp(config) {
     initializers: new Set(config.initializers),
     fixtureImports: [...(config.fixtureImports ?? [])],
     requireObserve: config.requireObserve ?? true,
+    // Off by default: an app with a closed expression vocabulary resolves the
+    // operators its observations name at runtime. The compile command turns it
+    // on so observations may use any helper definition from the model.
+    inlineObservations: config.inlineObservations ?? false,
     copySourceForFixtures: config.copySourceForFixtures ??
       (({ sourceText }) => sourceText),
     retrieveForCapabilities: config.retrieveForCapabilities ?? (() => new Set()),
@@ -381,11 +385,14 @@ function encodeObservation(node, context, app, defs, deepInline, fixtureNames) {
 
   for (const member of node.args) {
     if (member.kind === "app" && member.opcode === "assert" && member.args.length === 1) {
-      const expressionNode = deepInline
+      const inline = deepInline && app.inlineObservations;
+      const expressionNode = inline
         ? inlineExpr(member.args[0], defs, new Set(), context, true)
         : member.args[0];
-      collectUniverseFixtureNames(expressionNode, fixtureNames);
-      collectNamedFixtures(expressionNode, fixtureNames, defs);
+      if (inline) {
+        collectUniverseFixtureNames(expressionNode, fixtureNames);
+        collectNamedFixtures(expressionNode, fixtureNames, defs);
+      }
       const scope = expressionIsModelOnly(expressionNode, app) ? "model" : "runtime";
       const expression = encodeExpression(
         expressionNode,

@@ -656,6 +656,7 @@ function inferredApp(project) {
     initializers: [project.initializer],
     fixtureImports: [],
     requireObserve: true,
+    inlineObservations: true,
     retrieveForCapabilities: () => new Set(retrieve),
     actionRetrieveForCapabilities: () => new Set(retrieve),
     sources: () => [{

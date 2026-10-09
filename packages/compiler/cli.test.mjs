@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { compileProject, createProject } from "./cli.mjs";
+import { defineConformanceApp, generateConformanceTraces } from "./generate.mjs";
 
 const compilerRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(compilerRoot, "..", "..");
@@ -222,6 +223,41 @@ test("models the runtime cannot check are rejected with the fix", () => {
       assert.throws(() => compileProject("model.qnt", { cwd: directory }), expected);
     });
   }
+});
+
+test("the low-level generator keeps observation helpers by name unless the app opts in", () => {
+  withTemporaryDirectory(directory => {
+    // Setup: a fully refined run whose observation calls a helper definition.
+    writeModel(directory, bankModel
+      .replace(
+        "  /// @conformance",
+        `  def expectedBalance: bool = state.balance == 6
+
+  /// @conformance`,
+      )
+      .replace("assert(state.balance == 6)", "assert(expectedBalance)"));
+    const observation = inlineObservations => {
+      const artifact = generateConformanceTraces({
+        root: repositoryRoot,
+        specDir: directory,
+        fullyRefinedRuns: new Set(["bank.withdrawRun"]),
+        app: defineConformanceApp({
+          actions: ["withdraw"],
+          capabilities: ["bank.withdraw"],
+          expressionOperators: ["eq", "field"],
+          expressionNames: ["expectedBalance", "state"],
+          initializers: ["init"],
+          inlineObservations,
+          sources: () => [{ source: "model.qnt", module: "bank", init: "init", step: "withdraw" }],
+        }),
+      });
+      return artifact.scenarios[0].steps.at(-1).assertions[0].expression;
+    };
+
+    // An app with a closed vocabulary resolves `expectedBalance` at runtime.
+    assert.deepEqual(observation(undefined), { kind: "name", value: "expectedBalance" });
+    assert.equal(observation(true).operator, "eq");
+  });
 });
 
 test("the npm-style symlink invokes the CLI entrypoint", () => {

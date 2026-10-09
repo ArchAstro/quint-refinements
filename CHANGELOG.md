@@ -28,6 +28,11 @@ whole integration is generated from the model.
 
 ### Changed
 
+- The low-level generator inlines observation helpers only when the app sets
+  `inlineObservations`; `compile` sets it. Apps with a closed expression
+  vocabulary keep resolving the operators their observations name, as they
+  did before the `compile` command existed.
+
 - The two-phase commit example is generated from its annotated model. Its
   hand-written `app-config.mjs` and `generate-traces.mjs` are gone, and its
   primitives are named `two_phase_commit.begin`, `two_phase_commit.abort` and
