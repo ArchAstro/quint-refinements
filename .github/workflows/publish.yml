@@ -1,22 +1,24 @@
-name: Publish npm package
+name: Release
 
-# A compiler-vX.Y.Z tag on main publishes the root npm package through npm's
-# GitHub Actions trusted publisher. No long-lived NPM_TOKEN is used.
+# A vX.Y.Z tag on main releases the Rust runtime to crates.io and the compiler
+# to npm under that one version, then proves the published quick start works.
+# Both registries authenticate this workflow through OIDC trusted publishing;
+# no long-lived registry token is required. Every job is safe to re-run.
 
 on:
   push:
     tags:
-      - "compiler-v*"
+      - "v*"
 
 concurrency:
-  group: publish-npm-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions: {}
 
 jobs:
   verify:
-    name: Verify release and build package
+    name: Verify release and build packages
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -43,15 +45,13 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          case "$TAG" in
-            compiler-v*)
-              echo "version=${TAG#compiler-v}" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "Unsupported npm release tag: $TAG" >&2
-              exit 1
-              ;;
-          esac
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "Unsupported release tag: $TAG" >&2
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -65,31 +65,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify package identity matches the tag
+      - name: Verify both packages match the tag
         env:
           EXPECTED_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          actual_name="$(node -p "require('./package.json').name")"
-          actual_version="$(node -p "require('./package.json').version")"
-          if [[ "$actual_name" != "quint-refinements" ]]; then
-            echo "Unexpected npm package name: $actual_name" >&2
+          npm_name="$(node -p "require('./package.json').name")"
+          npm_version="$(node -p "require('./package.json').version")"
+          crate_version="$(cargo metadata --no-deps --format-version 1 --manifest-path bindings/rust/Cargo.toml \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).packages.find(p=>p.name==='quint-refinements').version))")"
+          if [[ "$npm_name" != "quint-refinements" ]]; then
+            echo "Unexpected npm package name: $npm_name" >&2
             exit 1
           fi
-          if [[ "$actual_version" != "$EXPECTED_VERSION" ]]; then
-            echo "Version mismatch: tag says $EXPECTED_VERSION, package.json says $actual_version" >&2
-            exit 1
-          fi
+          for actual in "$npm_version" "$crate_version"; do
+            if [[ "$actual" != "$EXPECTED_VERSION" ]]; then
+              echo "Version mismatch: tag says $EXPECTED_VERSION, npm says $npm_version, crate says $crate_version" >&2
+              exit 1
+            fi
+          done
 
-      - name: Test and build package
+      - name: Test and build packages
         run: |
           set -euo pipefail
           npm audit --audit-level=high
           npm test
+          cargo test --locked --manifest-path bindings/rust/Cargo.toml --all-targets
+          cargo package --locked --manifest-path bindings/rust/Cargo.toml
           mkdir dist
           npm pack --pack-destination dist
 
-      - name: Upload verified package
+      - name: Upload verified npm package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-package
@@ -97,9 +103,56 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  publish:
-    name: Publish with npm trusted publishing
+  # The crate goes first: a project scaffolded by the compiler depends on it.
+  publish-crate:
+    name: Publish Rust runtime to crates.io
     needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      # Only the first release of a new crate needs a token; see RELEASING.md.
+      BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Check whether this version is already published
+        id: existing
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --output index.txt --write-out '%{http_code}' \
+            https://index.crates.io/qu/in/quint-refinements)"
+          if [[ "$status" == "200" ]] && grep -q "\"vers\":\"$VERSION\"" index.txt; then
+            echo "quint-refinements $VERSION is already on crates.io; skipping publish"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$status" == "200" || "$status" == "404" ]]; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "crates.io index returned HTTP $status" >&2
+            exit 1
+          fi
+
+      - name: Authenticate with crates.io trusted publishing
+        id: auth
+        if: steps.existing.outputs.published == 'false' && env.BOOTSTRAP_TOKEN == ''
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish crate
+        if: steps.existing.outputs.published == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked --manifest-path bindings/rust/Cargo.toml
+
+  publish-npm:
+    name: Publish compiler to npm
+    needs:
+      - verify
+      - publish-crate
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -155,11 +208,52 @@ jobs:
             exit 1
           fi
 
+  # What a new user types, against the real registries.
+  quick-start:
+    name: Run the published quick start
+    needs:
+      - verify
+      - publish-npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {}
+    steps:
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          components: rustfmt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Create and run a new project
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Registry mirrors can trail a publish by a few seconds.
+          for attempt in 1 2 3 4 5 6; do
+            rm -rf quick-start
+            if npx --yes "quint-refinements@$VERSION" new quick-start \
+              && cargo run --manifest-path quick-start/Cargo.toml | tee output.txt; then
+              break
+            fi
+            if [[ "$attempt" == 6 ]]; then
+              echo "The published quick start did not pass" >&2
+              exit 1
+            fi
+            sleep 20
+          done
+          grep -q "counter.incrementRun refined 1 obligations" output.txt
+          (cd quick-start && npx quint-refinements compile --check)
+
   release:
     name: Create GitHub release
     needs:
       - verify
-      - publish
+      - quick-start
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -180,5 +274,6 @@ jobs:
           gh release create "$TAG" \
             --verify-tag \
             --title "quint-refinements v$VERSION" \
-            --notes "Published to npm: https://www.npmjs.com/package/quint-refinements/v/$VERSION" \
+            --notes "npm: https://www.npmjs.com/package/quint-refinements/v/$VERSION
+          crates.io: https://crates.io/crates/quint-refinements/$VERSION" \
             --generate-notes

@@ -2,12 +2,12 @@
   "scenario": "two_phase_commit.commitRun",
   "primitiveCalls": [
     {
-      "primitive": "postgres.txn.begin",
+      "primitive": "two_phase_commit.begin",
       "actions": ["begin"],
       "arguments": []
     },
     {
-      "primitive": "postgres.txn.commit",
+      "primitive": "two_phase_commit.commit",
       "actions": ["prepare", "flushWal", "commitPrepared"],
       "arguments": []
     }

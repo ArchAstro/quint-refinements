@@ -79,11 +79,10 @@ function fail(context, message) {
   throw new Error(`${context}: ${message}`);
 }
 
-export function parseConformanceCapabilities(
-  doc,
-  context = "declaration",
-  app = defaultAppConfig,
-) {
+// A bare `@conformance` directive asks the compiler to derive one capability
+// per action the run executes. `requires = [...]` remains for integrations that
+// group scenarios under their own capability names.
+export function conformanceDirective(doc, context = "declaration") {
   const directives = (doc ?? "")
     .split("\n")
     .map(line => line.trim())
@@ -91,22 +90,42 @@ export function parseConformanceCapabilities(
   if (directives.length !== 1) {
     fail(context, `expected exactly one @conformance directive, found ${directives.length}`);
   }
+  if (directives[0] === "@conformance") {
+    return { derived: true, capabilities: [] };
+  }
   const match = directives[0].match(
-    /^@conformance requires = \[([a-z0-9._]+(?:, [a-z0-9._]+)*)\]$/,
+    /^@conformance requires = \[([a-z0-9._]+(?:, [a-z0-9._]+)*)\]$/i,
   );
   if (!match) {
-    fail(context, "malformed @conformance directive");
+    fail(
+      context,
+      "malformed @conformance directive; write `@conformance` or "
+        + "`@conformance requires = [name, other.name]`",
+    );
   }
   const capabilities = match[1].split(", ");
   if (new Set(capabilities).size !== capabilities.length) {
     fail(context, "duplicate capability in @conformance directive");
   }
+  return { derived: false, capabilities: capabilities.sort() };
+}
+
+export function parseConformanceCapabilities(
+  doc,
+  context = "declaration",
+  app = defaultAppConfig,
+  derivedCapabilities = [],
+) {
+  const directive = conformanceDirective(doc, context);
+  const capabilities = directive.derived
+    ? [...new Set(derivedCapabilities)].sort()
+    : directive.capabilities;
   for (const capability of capabilities) {
     if (!app.capabilitySet.has(capability)) {
       fail(context, `unknown conformance capability ${capability}`);
     }
   }
-  return capabilities.sort();
+  return capabilities;
 }
 
 export function encodeExpression(
@@ -384,12 +403,19 @@ function encodeObservation(node, context, app, defs, deepInline, fixtureNames) {
     } else if (isStateSelfAssignment(member)) {
       stateAssignmentCount += 1;
     } else {
-      fail(context, "observation blocks may contain only assertions and state' = state");
+      fail(
+        context,
+        "an observation block is `all { assert(...), state' = state }`: "
+          + "only assertions plus the unchanged `state` variable",
+      );
     }
   }
 
   if (assertions.length === 0 || stateAssignmentCount !== 1) {
-    fail(context, "observation blocks require assertions and exactly one state' = state");
+    fail(
+      context,
+      "an observation block needs at least one assert(...) and exactly one `state' = state`",
+    );
   }
   return { kind: "observe", assertions };
 }
@@ -1208,10 +1234,17 @@ export function extractRun(
   app = defaultAppConfig,
 ) {
   const context = `${source}:${declaration.name}`;
-  const requiredCapabilities = parseConformanceCapabilities(declaration.doc, context, app);
+  const nodes = flattenThen(declaration.expr);
+  const requiredCapabilities = parseConformanceCapabilities(
+    declaration.doc,
+    context,
+    app,
+    nodes.slice(1)
+      .filter(node => !(node?.kind === "app" && node.opcode === "actionAll"))
+      .map(node => `${moduleName}.${node?.kind === "name" ? node.name : node?.opcode}`),
+  );
   const retrieve = app.actionRetrieveForCapabilities(requiredCapabilities);
   const deepInline = fullyRefinedRuns.has(`${moduleName}.${declaration.name}`);
-  const nodes = flattenThen(declaration.expr);
   const initial = nodes.shift();
   if (
     initial?.kind !== "name" ||

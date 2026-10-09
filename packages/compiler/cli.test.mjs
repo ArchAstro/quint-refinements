@@ -15,22 +15,72 @@ const packageMetadata = JSON.parse(
   fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
 );
 
-test("new and compile derive the integration from the Quint AST", () => {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "quint-refinements-cli-test-"));
+const rustVersion = fs.readFileSync(path.join(rustBindingRoot, "Cargo.toml"), "utf8")
+  .match(/^version = "([^"]+)"$/m)[1];
+// Resolves the scaffolded registry dependency to this checkout's runtime
+// without touching the generated manifest.
+const localRuntime = [
+  "--config",
+  `patch.crates-io.quint-refinements.path=${JSON.stringify(rustBindingRoot)}`,
+];
+const bankModel = fs.readFileSync(
+  path.join(repositoryRoot, "examples", "rust", "bank_account", "bank.qnt"),
+  "utf8",
+);
+const twoPhaseCommitModel = fs.readFileSync(
+  path.join(rustBindingRoot, "examples", "two_phase_commit", "model.qnt"),
+  "utf8",
+);
+
+function withTemporaryDirectory(callback) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "quint-refinements-test-"));
   try {
-    const projectDirectory = createProject("bank-refinement", {
-      cwd: temporaryRoot,
+    return callback(directory);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function writeModel(directory, source, name = "model.qnt") {
+  fs.writeFileSync(path.join(directory, name), source);
+}
+
+test("the compiler and the Rust runtime release under one version", () => {
+  // `new` writes the compiler's version as the crate requirement.
+  assert.equal(rustVersion, packageMetadata.version);
+});
+
+test("a new project refines its implementation without any edits", () => {
+  withTemporaryDirectory(directory => {
+    const projectDirectory = createProject("counter-refinement", {
+      cwd: directory,
       install: false,
     });
-    const bankModel = fs.readFileSync(
-      path.join(repositoryRoot, "examples", "rust", "bank_account", "bank.qnt"),
-      "utf8",
-    )
+
+    assert.match(
+      fs.readFileSync(path.join(projectDirectory, "Cargo.toml"), "utf8"),
+      new RegExp(`^quint-refinements = "${rustVersion.replaceAll(".", "\\.")}"$`, "m"),
+    );
+    const cargo = spawnSync(
+      "cargo",
+      ["run", "--quiet", "--manifest-path", path.join(projectDirectory, "Cargo.toml"), ...localRuntime],
+      { encoding: "utf8" },
+    );
+
+    assert.equal(cargo.status, 0, cargo.stderr);
+    assert.match(cargo.stdout, /counter\.incrementRun refined 1 obligations/);
+    compileProject("model.qnt", { cwd: projectDirectory, check: true });
+  });
+});
+
+test("compile derives the whole integration from the Quint AST", () => {
+  withTemporaryDirectory(directory => {
+    writeModel(directory, bankModel
       .replace(
-        "  /// @conformance requires = [bank.withdraw]",
+        "  /// @conformance",
         `  def expectedBalance: bool = state.balance == 6
 
-  /// @conformance requires = [bank.withdraw]`,
+  /// @conformance`,
       )
       .replace("assert(state.balance == 6)", "assert(expectedBalance)")
       .replace(/\n}\s*$/, `
@@ -38,59 +88,139 @@ test("new and compile derive the integration from the Quint AST", () => {
   // Ordinary Quint runs do not become refinement scenarios.
   run exploratory = init.then(withdraw(1))
 }
-`);
-    fs.writeFileSync(path.join(projectDirectory, "model.qnt"), bankModel);
+`));
 
-    const result = compileProject("model.qnt", { cwd: projectDirectory });
+    const result = compileProject("model.qnt", { cwd: directory });
 
     assert.equal(result.project.module, "bank");
     assert.deepEqual(result.project.actions, ["withdraw"]);
-    assert.deepEqual(result.project.stateVariables, ["state"]);
-    assert.ok(fs.existsSync(path.join(projectDirectory, "quint-refinements.json")));
+    assert.deepEqual(result.project.capabilities, ["bank.withdraw"]);
     const artifact = JSON.parse(
-      fs.readFileSync(path.join(projectDirectory, "quint-refinements.json"), "utf8"),
+      fs.readFileSync(path.join(directory, "quint-refinements.json"), "utf8"),
     );
     assert.deepEqual(artifact.scenarios.map(scenario => scenario.name), ["withdrawRun"]);
     assert.doesNotMatch(JSON.stringify(artifact), /name:expectedBalance/);
     assert.match(
-      fs.readFileSync(path.join(projectDirectory, "src", "generated_refinement.rs"), "utf8"),
+      fs.readFileSync(path.join(directory, "src", "generated_refinement.rs"), "utf8"),
       /fn withdraw\(&mut self, arguments: &\[RuntimeValue\]\)/,
     );
     assert.match(
-      fs.readFileSync(path.join(projectDirectory, "src", "main.rs"), "utf8"),
+      fs.readFileSync(path.join(directory, "src", "main.rs"), "utf8"),
       /implement Quint action withdraw/,
     );
-    assert.equal(fs.existsSync(path.join(projectDirectory, "app-config.mjs")), false);
-    assert.equal(fs.existsSync(path.join(projectDirectory, "generate-traces.mjs")), false);
+    assert.deepEqual(
+      fs.readdirSync(directory).sort(),
+      ["model.qnt", "quint-refinements.json", "src"],
+    );
 
-    compileProject("model.qnt", { cwd: projectDirectory, check: true });
-  } finally {
-    fs.rmSync(temporaryRoot, { recursive: true, force: true });
-  }
+    compileProject("model.qnt", { cwd: directory, check: true });
+  });
 });
 
-test("the generated starter project compiles as Rust before domain hooks are implemented", () => {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "quint-refinements-new-test-"));
-  try {
-    const projectDirectory = createProject("counter-refinement", {
-      cwd: temporaryRoot,
-      install: false,
-    });
-    compileProject("model.qnt", { cwd: projectDirectory });
+test("compile never overwrites the user's implementation and reports drift", () => {
+  withTemporaryDirectory(directory => {
+    writeModel(directory, bankModel);
+    const { mainPath } = compileProject("model.qnt", { cwd: directory });
+    fs.writeFileSync(mainPath, "// mine\n");
 
-    const manifestPath = path.join(projectDirectory, "Cargo.toml");
-    const manifest = fs.readFileSync(manifestPath, "utf8").replace(
-      'quint-refinements = "0.1.0"',
-      `quint-refinements = { path = ${JSON.stringify(rustBindingRoot)} }`,
+    writeModel(directory, bankModel.replace("withdraw(4)", "withdraw(3)").replace("== 6", "== 7"));
+    assert.throws(
+      () => compileProject("model.qnt", { cwd: directory, check: true }),
+      /quint-refinements\.json drifted; run quint-refinements compile/,
     );
-    fs.writeFileSync(manifestPath, manifest);
+    compileProject("model.qnt", { cwd: directory });
 
-    const cargo = spawnSync("cargo", ["check", "--manifest-path", manifestPath], {
-      encoding: "utf8",
+    assert.equal(fs.readFileSync(mainPath, "utf8"), "// mine\n");
+    compileProject("model.qnt", { cwd: directory, check: true });
+  });
+});
+
+test("one @primitive line gives a command an ordered sequence of camelCase actions", () => {
+  withTemporaryDirectory(directory => {
+    writeModel(directory, twoPhaseCommitModel);
+
+    const result = compileProject("model.qnt", {
+      cwd: directory,
+      artifact: "generated/traces.json",
+      rust: "adapter/generated.rs",
     });
-    assert.equal(cargo.status, 0, cargo.stderr);
-  } finally {
-    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+
+    assert.deepEqual(
+      result.project.primitives.map(primitive => [primitive.name, primitive.actions]),
+      [
+        ["abort", ["abort"]],
+        ["begin", ["begin"]],
+        ["commit", ["prepare", "flushWal", "commitPrepared"]],
+      ],
+    );
+    const rust = fs.readFileSync(path.join(directory, "adapter", "generated.rs"), "utf8");
+    assert.match(rust, /include_str!\("\.\.\/generated\/traces\.json"\)/);
+    assert.match(rust, /refines: \["prepare", "flushWal", "commitPrepared"\]/);
+    assert.match(rust, /fn commit\(&mut self, actions: &\[ResolvedAction\]\) -> Result<Vec<Self::Evidence>, String>;/);
+    assert.doesNotMatch(rust, /fn flush_wal/);
+    // Custom output paths mean the caller owns the layout: no main.rs scaffold.
+    assert.equal(fs.existsSync(path.join(directory, "src")), false);
+  });
+});
+
+test("scenarios may import their model from another file", () => {
+  withTemporaryDirectory(directory => {
+    writeModel(directory, bankModel.replace(/\n  \/\/\/ @conformance[\s\S]*$/, "}\n"), "bank.qnt");
+    writeModel(directory, `module scenarios {
+  import bank.* from "./bank"
+
+  /// @conformance
+  run withdrawRun = init
+    .then(withdraw(4))
+    .then(all {
+      assert(state.balance == 6),
+      state' = state,
+    })
+}
+`);
+
+    const result = compileProject("model.qnt", { cwd: directory });
+
+    assert.equal(result.project.module, "scenarios");
+    assert.deepEqual(result.project.primitives.map(primitive => primitive.name), ["withdraw"]);
+  });
+});
+
+test("models the runtime cannot check are rejected with the fix", () => {
+  const cases = [
+    [
+      bankModel.replaceAll("state", "account"),
+      /declares state variables \[account\]; keep the whole model state in one `var state`/,
+    ],
+    [
+      `module counter {
+  var state: int
+  action init = state' = 0
+  action increment = state' = state + 1
+  /// @conformance
+  run incrementRun = init.then(increment).then(all { assert(state == 1), state' = state })
+}
+`,
+      /declares `var state` as a int; make it a record/,
+    ],
+    [
+      twoPhaseCommitModel.replace("[prepare, flushWal, commitPrepared]", "[prepare, vacuum]"),
+      /@primitive commit owns vacuum, which no conformance run executes/,
+    ],
+    [
+      twoPhaseCommitModel.replace("@primitive commit = [", "@primitive commit: ["),
+      /malformed @primitive directive; write `@primitive name = \[firstAction, secondAction\]`/,
+    ],
+    [
+      bankModel.replace("/// @conformance", "/// @conformance please"),
+      /malformed @conformance directive; write `@conformance`/,
+    ],
+  ];
+  for (const [model, expected] of cases) {
+    withTemporaryDirectory(directory => {
+      writeModel(directory, model);
+      assert.throws(() => compileProject("model.qnt", { cwd: directory }), expected);
+    });
   }
 });
 
@@ -103,7 +233,7 @@ test("the npm-style symlink invokes the CLI entrypoint", () => {
     const invocation = spawnSync(binaryPath, ["--help"], { encoding: "utf8" });
 
     assert.equal(invocation.status, 0, invocation.stderr);
-    assert.match(invocation.stdout, /quint-refinements compile <spec\.qnt>/);
+    assert.match(invocation.stdout, /quint-refinements compile \[spec\.qnt\]/);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -164,30 +294,29 @@ test("a packed npm install creates and compiles a project with hoisted Quint", (
     assert.deepEqual(generatedPackage.dependencies, {
       "quint-refinements": `^${packageMetadata.version}`,
     });
-    const compiled = spawnSync(binary, ["compile", "counter/model.qnt"], {
-      cwd: consumerDirectory,
-      encoding: "utf8",
-    });
-    assert.equal(compiled.status, 0, compiled.stderr);
-
-    // Observable outcome: the consumer receives every generated Rust boundary artifact.
+    // Observable outcome: `new` alone delivers every generated Rust boundary artifact,
+    // and the installed CLI agrees they match the model.
     assert.ok(fs.existsSync(path.join(consumerDirectory, "counter", "quint-refinements.json")));
     assert.ok(fs.existsSync(
       path.join(consumerDirectory, "counter", "src", "generated_refinement.rs"),
     ));
-    assert.ok(fs.existsSync(path.join(consumerDirectory, "counter", "src", "main.rs")));
-
-    // Rust boundary: compile the packed CLI's generated project against this checkout's
-    // matching runtime version, avoiding a registry dependency before the first release.
-    const manifestPath = path.join(consumerDirectory, "counter", "Cargo.toml");
-    const manifest = fs.readFileSync(manifestPath, "utf8").replace(
-      'quint-refinements = "0.1.0"',
-      `quint-refinements = { path = ${JSON.stringify(rustBindingRoot)} }`,
-    );
-    fs.writeFileSync(manifestPath, manifest);
-    const cargo = spawnSync("cargo", ["check", "--manifest-path", manifestPath], {
+    const checked = spawnSync(binary, ["compile", "--check"], {
+      cwd: path.join(consumerDirectory, "counter"),
       encoding: "utf8",
     });
+    assert.equal(checked.status, 0, checked.stderr);
+
+    // Rust boundary: the manifest exactly as scaffolded, resolved to this checkout's runtime.
+    const cargo = spawnSync(
+      "cargo",
+      [
+        "test",
+        "--manifest-path",
+        path.join(consumerDirectory, "counter", "Cargo.toml"),
+        ...localRuntime,
+      ],
+      { encoding: "utf8" },
+    );
     assert.equal(cargo.status, 0, cargo.stderr);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });

@@ -14,7 +14,7 @@ module bank {
     state' = { balance: state.balance - amount },
   }
 
-  /// @conformance requires = [bank.withdraw]
+  /// @conformance
   run withdrawRun = init
     .then(withdraw(4))
     .then(all {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "modelDigest": "sha256:496bb41ebe658af11b52eecb97924736402d92da78c72018904dedca23f4f32a",
+  "modelDigest": "sha256:78d1c315d3289bc74bbcce2c8e04b9bfff1a3380995b23ecf8869ba1acecf5e1",
   "vocabulary": {
     "actions": [
       "withdraw"

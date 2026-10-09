@@ -1,49 +1,19 @@
 //! Client `commit()` is one Rust function. Quint still has prepare, flush, commit.
+//!
+//! Everything that connects this file to `model.qnt` lives in `generated.rs`,
+//! which `quint-refinements compile` derives from the model.
 
 use std::collections::BTreeMap;
 
 use quint_refinements::{
-    AsyncPrimitiveDriver, ConformanceArtifact, FixtureTable, NormalizedRuntimeEvidence,
-    OwnershipTable, PrimitiveDriver, QuintFixture, ResolvedAction, RuntimeValue,
-    collect_ownership_records, quint_ownership, refine_scenario, refine_scenario_async,
+    FixtureTable, NormalizedRuntimeEvidence, QuintFixture, ResolvedAction, RuntimeValue,
+    collect_ownership_records, refine_scenario_async,
 };
 
-quint_ownership! {
-    pub const BEGIN_OWNERSHIP = {
-        primitive: "postgres.txn.begin",
-        refines: ["begin"],
-        observations: ["path:state.status"],
-    };
-}
+#[path = "generated.rs"]
+pub mod generated;
 
-quint_ownership! {
-    pub const COMMIT_OWNERSHIP = {
-        primitive: "postgres.txn.commit",
-        refines: ["prepare", "flushWal", "commitPrepared"],
-        observations: ["path:state.status", "path:state.flushed", "path:state.wal"],
-    };
-}
-
-pub const OWNERSHIP: OwnershipTable = OwnershipTable {
-    owner: "two-phase-commit-example",
-    descriptors: &[BEGIN_OWNERSHIP, COMMIT_OWNERSHIP],
-};
-
-const RETRIEVE: &[&str] = &[
-    "name:state",
-    "operator:append",
-    "operator:assign",
-    "operator:contains",
-    "operator:eq",
-    "operator:field",
-    "operator:or",
-    "operator:with",
-    "path:state.flushed",
-    "path:state.status",
-    "path:state.wal",
-];
-
-const TRACES: &str = include_str!("traces.json");
+use generated::{Driver, Implementation, OWNERSHIP, RETRIEVE, refine_all};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Status {
@@ -55,6 +25,17 @@ pub enum Status {
 }
 
 impl Status {
+    fn from_tag(tag: &str) -> Result<Self, String> {
+        match tag {
+            "Idle" => Ok(Self::Idle),
+            "Open" => Ok(Self::Open),
+            "Prepared" => Ok(Self::Prepared),
+            "Committed" => Ok(Self::Committed),
+            "Aborted" => Ok(Self::Aborted),
+            other => Err(format!("unknown status {other}")),
+        }
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Self::Idle => "Idle",
@@ -185,6 +166,14 @@ impl Coordinator {
         Ok(())
     }
 
+    fn abort(&mut self) -> Result<(), String> {
+        if !matches!(self.snapshot.status, Status::Open | Status::Prepared) {
+            return Err("abort requires Open or Prepared".to_owned());
+        }
+        self.snapshot.status = Status::Aborted;
+        Ok(())
+    }
+
     /// One client COMMIT. Internally prepare, flush, commit — the 1-to-N tape.
     fn commit(&mut self) -> Result<Vec<Snapshot>, String> {
         self.prepare()?;
@@ -196,75 +185,85 @@ impl Coordinator {
     }
 }
 
-impl PrimitiveDriver for Coordinator {
-    type Evidence = Snapshot;
-
-    fn run_primitive(
-        &mut self,
-        primitive: &str,
-        actions: &[ResolvedAction],
-    ) -> Result<Vec<Snapshot>, String> {
-        match primitive {
-            "postgres.txn.begin" => {
-                self.begin()?;
-                Ok(vec![self.snapshot.clone()])
-            }
-            "postgres.txn.commit" => {
-                if actions.iter().map(|action| action.name.as_str()).ne([
-                    "prepare",
-                    "flushWal",
-                    "commitPrepared",
-                ]) {
-                    return Err(format!(
-                        "commit tape must be prepare, flushWal, commitPrepared; got {actions:?}"
-                    ));
-                }
-                self.commit()
-            }
-            other => Err(format!("no driver for {other}")),
-        }
+impl Default for Coordinator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-impl AsyncPrimitiveDriver for Coordinator {
+/// The generated trait: one hook per implementation command.
+impl Implementation for Coordinator {
     type Evidence = Snapshot;
 
-    async fn run_primitive(
-        &mut self,
-        primitive: &str,
-        actions: &[ResolvedAction],
-    ) -> Result<Vec<Self::Evidence>, String> {
-        PrimitiveDriver::run_primitive(self, primitive, actions)
+    fn from_initial_state(initial_state: &RuntimeValue) -> Result<Self, String> {
+        let RuntimeValue::Record(state) = initial_state else {
+            return Err(format!(
+                "expected a transaction record, got {initial_state:?}"
+            ));
+        };
+        let status = match state.get("status") {
+            Some(RuntimeValue::Text(tag) | RuntimeValue::Variant { tag, .. }) => {
+                Status::from_tag(tag)?
+            }
+            other => return Err(format!("transaction has no status tag: {other:?}")),
+        };
+        let Some(RuntimeValue::List(wal)) = state.get("wal") else {
+            return Err(format!("transaction has no wal list: {state:?}"));
+        };
+        let wal = wal
+            .iter()
+            .map(|entry| match entry {
+                RuntimeValue::Text(entry) => Ok(entry.clone()),
+                other => Err(format!("wal entry is not text: {other:?}")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let Some(RuntimeValue::Bool(flushed)) = state.get("flushed") else {
+            return Err(format!("transaction has no flushed flag: {state:?}"));
+        };
+        Ok(Self {
+            snapshot: Snapshot {
+                status,
+                wal,
+                flushed: *flushed,
+            },
+        })
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        self.snapshot()
+    }
+
+    fn fixtures() -> FixtureTable {
+        fixture_table()
+    }
+
+    fn begin(&mut self, _arguments: &[RuntimeValue]) -> Result<(), String> {
+        self.begin()
+    }
+
+    fn abort(&mut self, _arguments: &[RuntimeValue]) -> Result<(), String> {
+        self.abort()
+    }
+
+    /// `@primitive commit = [prepare, flushWal, commitPrepared]` in the model.
+    fn commit(&mut self, _actions: &[ResolvedAction]) -> Result<Vec<Snapshot>, String> {
+        self.commit()
     }
 }
 
-/// Runs `commitRun` through the refinement loop.
+/// Runs every generated scenario and returns the obligations `commitRun` evaluated.
 pub fn refine_commit_run() -> Result<usize, String> {
-    let artifact = ConformanceArtifact::parse(TRACES).map_err(|error| error.to_string())?;
-    let scenario = artifact
-        .scenarios
-        .first()
-        .ok_or_else(|| "commitRun missing".to_owned())?;
-    let ownership = collect_ownership_records(&[OWNERSHIP]).map_err(|error| error.to_string())?;
-    let fixtures = fixture_table();
-    fixtures
-        .validate(&artifact)
-        .map_err(|error| error.to_string())?;
-    let mut driver = Coordinator::new();
-    refine_scenario(
-        scenario,
-        driver.snapshot(),
-        &ownership,
-        RETRIEVE,
-        &fixtures,
-        &mut driver,
-    )
+    refine_all::<Coordinator>()?
+        .into_iter()
+        .find(|result| result.scenario == "two_phase_commit.commitRun")
+        .map(|result| result.evaluated_obligations)
+        .ok_or_else(|| "commitRun missing".to_owned())
 }
 
 /// Runs generated `commitRun` through the runtime-neutral async driver API.
 #[allow(dead_code)]
 pub async fn refine_commit_run_async() -> Result<usize, String> {
-    let artifact = ConformanceArtifact::parse(TRACES).map_err(|error| error.to_string())?;
+    let artifact = generated::artifact()?;
     let scenario = artifact
         .scenarios
         .iter()
@@ -275,10 +274,12 @@ pub async fn refine_commit_run_async() -> Result<usize, String> {
     fixtures
         .validate(&artifact)
         .map_err(|error| error.to_string())?;
-    let mut driver = Coordinator::new();
+    let mut driver = Driver {
+        implementation: Coordinator::new(),
+    };
     refine_scenario_async(
         scenario,
-        driver.snapshot(),
+        driver.implementation.snapshot(),
         &ownership,
         RETRIEVE,
         &fixtures,

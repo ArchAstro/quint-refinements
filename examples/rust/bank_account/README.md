@@ -6,7 +6,7 @@ This is the completed project from the [step-by-step tutorial](../../../docs/tut
 # From the repository root:
 npm ci
 cd examples/rust/bank_account
-node ../../../packages/compiler/cli.mjs compile bank.qnt
+node ../../../packages/compiler/cli.mjs compile bank.qnt --check
 cargo run
 cargo test
 ```
@@ -24,4 +24,4 @@ bank.qnt withdraw(4)
         -> generated guard and next-state checks
 ```
 
-`npm run check` fails when either generated artifact no longer matches `bank.qnt`.
+From the repository root, `npm run generate` rewrites both generated files after a model change and `npm run check:generated` fails when either no longer matches `bank.qnt`.

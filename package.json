@@ -1,9 +1,20 @@
 {
   "name": "quint-refinements",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
-  "description": "Generate runtime refinement adapters and conformance traces from Quint models",
+  "description": "Check a real implementation against a Quint model: generated scenarios, typed adapters and refinement checks",
   "license": "MIT",
+  "homepage": "https://github.com/ArchAstro/quint-refinements#readme",
+  "bugs": "https://github.com/ArchAstro/quint-refinements/issues",
+  "keywords": [
+    "quint",
+    "refinement",
+    "formal-methods",
+    "model-based-testing",
+    "conformance",
+    "rust",
+    "codegen"
+  ],
   "packageManager": "npm@11.19.0",
   "repository": {
     "type": "git",
@@ -34,13 +45,12 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "test": "npm run test:compiler && npm run check:schema && npm run check:traces && npm run check:bank && npm run check:corpus",
+    "test": "npm run test:compiler && npm run check:schema && npm run check:generated && npm run check:corpus",
     "test:compiler": "node --test packages/compiler/cli.test.mjs",
     "check:schema": "cmp packages/compiler/expression_vocabulary.json bindings/rust/expression_vocabulary.json",
-    "check:traces": "node bindings/rust/examples/two_phase_commit/generate-traces.mjs --check",
-    "generate:traces": "node bindings/rust/examples/two_phase_commit/generate-traces.mjs",
-    "check:bank": "node packages/compiler/cli.mjs compile examples/rust/bank_account/bank.qnt --check",
-    "check:corpus": "node conformance/validate.mjs && cmp examples/rust/bank_account/quint-refinements.json conformance/cases/bank_withdraw/artifact.json && cmp bindings/rust/examples/two_phase_commit/traces.json conformance/cases/two_phase_commit/artifact.json"
+    "check:generated": "node scripts/generate.mjs --check",
+    "check:corpus": "node conformance/validate.mjs",
+    "generate": "node scripts/generate.mjs"
   },
   "dependencies": {
     "@informalsystems/quint": "0.32.0"
@@ -52,6 +62,6 @@
     "@informalsystems/quint"
   ],
   "overrides": {
-    "adm-zip": "0.6.0"
+    "adm-zip": "0.6.1"
   }
 }

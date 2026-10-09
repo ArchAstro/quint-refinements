@@ -8,7 +8,7 @@ date: 2026-08-26
 
 When a compiler, schema parser, or other authoritative source can expose the structure needed by an integration, the public workflow must derive configuration and adapter scaffolding from that parsed source. Users should provide domain decisions and implementation code, not repeat action names, fields, operators, or entry points that the tool can already discover.
 
-A narrow exception is configuration that represents a real user choice and cannot be inferred. Keep that input declarative and minimal, and explain why it is required.
+A narrow exception is configuration that represents a real user choice and cannot be inferred. Keep that input declarative and minimal, put it in the authoritative source next to what it describes, and explain why it is required. In this repository the only such input is `@primitive name = [actions]` in a Quint module comment: the model cannot know that one production command performs several of its actions.
 
 ## Positive example
 
