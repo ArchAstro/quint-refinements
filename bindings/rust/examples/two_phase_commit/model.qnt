@@ -2,7 +2,9 @@
 ///
 /// Client `COMMIT` is one implementation command. The model still has three
 /// spec steps: write PREPARE, flush WAL, write COMMIT. The Rust example
-/// refines those three with one `commit()` call.
+/// refines those three with one `commit()` call:
+///
+/// @primitive commit = [prepare, flushWal, commitPrepared]
 module two_phase_commit {
   type Status = Idle | Open | Prepared | Committed | Aborted
 
@@ -60,7 +62,7 @@ module two_phase_commit {
     state' = { ...state, status: Aborted },
   }
 
-  /// @conformance requires = [txn.commit]
+  /// @conformance
   run commitRun = init
     .then(begin)
     .then(prepare)
@@ -71,7 +73,7 @@ module two_phase_commit {
       state' = state,
     })
 
-  /// @conformance requires = [txn.commit]
+  /// @conformance
   run abortBeforePrepareRun = init
     .then(begin)
     .then(abort)

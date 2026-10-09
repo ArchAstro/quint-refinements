@@ -7,14 +7,14 @@ You will write two things:
 1. The Quint specification.
 2. The Rust bank implementation.
 
-The trace configuration, ownership records, action dispatch, expression registry, and refinement runner are generated from Quint's own AST.
+The scenarios, ownership records, action dispatch, and refinement runner are generated from Quint's own AST.
 
 The completed project is in [`examples/rust/bank_account`](../examples/rust/bank_account).
 
 ```text
 model.qnt
    |
-   |  npx quint-refinements compile model.qnt
+   |  npx quint-refinements compile
    v
 Quint AST -> generated scenario + generated Rust adapter
                                       |
@@ -32,9 +32,14 @@ You need Node.js 22 or newer and Rust 1.85 or newer.
 ```console
 npx quint-refinements new bank-refinement
 cd bank-refinement
+cargo run
 ```
 
-`new` creates the Cargo and npm manifests, installs the pinned Quint toolchain, and adds a starter `model.qnt`. It does not create generator configuration files.
+```text
+counter.incrementRun refined 1 obligations
+```
+
+`new` creates a small counter model, a Rust implementation of it, and the generated adapter between them, so the project passes before you change anything. There are no generator configuration files.
 
 ## 2. Write the Quint specification
 
@@ -57,7 +62,7 @@ module bank {
     state' = { balance: state.balance - amount },
   }
 
-  /// @conformance requires = [bank.withdraw]
+  /// @conformance
   run withdrawRun = init
     .then(withdraw(4))
     .then(all {
@@ -67,25 +72,30 @@ module bank {
 }
 ```
 
-Get the Quint model working before connecting Rust. The `@conformance` directive marks `withdrawRun` for generated refinement coverage.
+Get the Quint model working before connecting Rust. The `@conformance` comment marks `withdrawRun` as a scenario the implementation must follow. Runs without it stay ordinary Quint tests.
+
+The model keeps all of its state in one record variable named `state`, and each scenario ends with `all { assert(...), state' = state }`. The compiler tells you how to fix a model that does not.
 
 ## 3. Compile the refinement boundary
 
 Run:
 
 ```console
-npx quint-refinements compile model.qnt
+npx quint-refinements compile
 ```
 
-The command invokes the pinned `quint parse` and `quint compile` commands. It derives the integration from Quint's parsed declarations and expressions.
+The command reads `model.qnt` through the pinned Quint parser and derives the integration from its declarations and expressions.
 
 | Generated file | Contents |
 |---|---|
 | `quint-refinements.json` | Concrete run, initial state, action arguments, guards, and next-state assignments |
-| `src/generated_refinement.rs` | Ownership records, action dispatch, expression registry, and refinement runner |
-| `src/main.rs` | A first-run implementation scaffold with one hook per Quint action |
+| `src/generated_refinement.rs` | Ownership records, action dispatch, the `Implementation` trait, and the refinement runner |
 
-`src/generated_refinement.rs` is replaced every time you compile. `src/main.rs` is created only when it does not exist, so later compilation never overwrites your implementation.
+Both files are replaced every time you compile. `src/main.rs` is yours: the compiler writes it only when it does not exist, so it still holds the starter counter. Running `cargo run` now fails to build, and the error names the hook the new model needs:
+
+```text
+error[E0046]: not all trait items implemented, missing: `withdraw`
+```
 
 For this model, the generated Rust trait asks for three domain decisions:
 
@@ -101,7 +111,12 @@ pub trait Implementation: Sized {
 
 The action name, hook, arguments, ownership record, and runner came from `model.qnt`. You implement the command and expose its observable state.
 
-The generated path maps each Quint action to the capability `<module>.<action>`. Use the lower-level generator API when one production primitive intentionally owns several Quint actions.
+Each Quint action becomes one method. When one production command performs several actions, declare it in the module comment and the compiler generates a single method for the sequence, as in the [two-phase commit example](../bindings/rust/examples/two_phase_commit):
+
+```quint
+/// @primitive commit = [prepare, flushWal, commitPrepared]
+module two_phase_commit {
+```
 
 ## 4. Connect the Rust implementation
 
@@ -216,7 +231,7 @@ The generated adapter passes Quint's `4` to `Bank::withdraw`, snapshots the real
 bank refinement failed: bank.withdrawRun:withdraw next: assign state diverged at state.balance expected Int(6), observed Int(14)
 ```
 
-No handwritten JavaScript or action registry sits between the model and this failure.
+No handwritten configuration or action registry sits between the model and this failure.
 
 ## 6. Fix the issue
 
@@ -265,7 +280,7 @@ mod tests {
 Then run:
 
 ```console
-npx quint-refinements compile model.qnt --check
+npx quint-refinements compile --check
 cargo test
 ```
 

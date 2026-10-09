@@ -1,120 +1,174 @@
 # quint-refinements
 
-`quint-refinements` compiles annotated [Quint](https://quint.sh/) scenarios into implementation checks. The current Rust binding declares which Quint action or ordered action sequence a primitive owns, executes it once, returns observable snapshots, and evaluates every generated guard and next-state obligation.
+[![CI](https://github.com/ArchAstro/quint-refinements/actions/workflows/ci.yml/badge.svg)](https://github.com/ArchAstro/quint-refinements/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/quint-refinements)](https://www.npmjs.com/package/quint-refinements)
+[![crates.io](https://img.shields.io/crates/v/quint-refinements)](https://crates.io/crates/quint-refinements)
+
+Check that your real code does what your [Quint](https://quint.sh/) model says.
+
+You write the model and the implementation. `quint-refinements` generates everything between them, then runs your code through each scenario and checks every guard and next-state assignment against what the code actually did.
 
 ```text
-Quint model -> generated JSON -> ownership scheduler -> real Rust command
-                                                     -> evidence snapshots
-                         generated obligations <---- refinement evaluator
+model.qnt ──compile──> quint-refinements.json        scenarios and obligations
+                       src/generated_refinement.rs   typed trait and runner
+                                  │
+your implementation ──────────────┘──> cargo run     pass, or the exact divergence
 ```
-
-## What the Rust binding proves
-
-1. Every scenario action has an explicit implementation owner.
-2. One implementation command may refine one action or an ordered 1-to-N action sequence.
-3. The command returns exactly one evidence snapshot per owned action.
-4. Rust fixtures match the values generated from Quint.
-5. Guards and complete next-state assignments hold over the returned snapshot tape.
-
-The compiler and bindings do not decide which scenarios a product must cover. Coverage policy remains in the consuming project.
-
-## Repository layout
-
-This repository keeps the language-neutral compiler and all runtime bindings on one conformance corpus. Each binding remains independently publishable and versioned.
-
-```text
-packages/compiler/          Quint AST, generated artifact, and npx CLI implementation
-bindings/rust/              Rust runtime published to crates.io
-examples/rust/bank_account  Complete compiler-to-Rust tutorial project
-conformance/                Shared artifact schema and golden binding cases
-```
-
-Future runtimes belong under `bindings/<language>`. Cross-language example projects belong under `examples/<language>`.
 
 ## Quick start
 
-Create a project and generate its Rust boundary from Quint:
+You need Node.js 22 or newer and Rust 1.85 or newer.
 
 ```console
-npx quint-refinements new bank-refinement
-cd bank-refinement
-# Edit model.qnt until Quint accepts the model.
-npx quint-refinements compile model.qnt
+npx quint-refinements new my-check
+cd my-check
 cargo run
 ```
 
-The compile command reuses Quint's parser and AST. It generates the scenario artifact, ownership records, action dispatch, expression registry, and Rust refinement runner. You implement only the generated Rust action hooks and observable snapshots. See the [step-by-step tutorial](docs/tutorial.md).
+```text
+counter.incrementRun refined 1 obligations
+```
 
-For advanced integrations, the ownership API is also available directly:
+That project already passes. Now make it yours:
 
-```rust
-use quint_refinements::quint_ownership;
+1. Edit `model.qnt`.
+2. Run `npx quint-refinements compile`.
+3. Run `cargo run`. The compiler lists each action hook `src/main.rs` still needs.
 
-quint_ownership! {
-    pub const COMMIT = {
-        primitive: "database.transaction.commit",
-        refines: ["prepare", "flushWal", "commitPrepared"],
-        aliases: [],
-        observations: ["path:state.status", "path:state.wal"],
-        retrieve: ["name:state"],
-    };
+When the implementation disagrees with the model, you get the divergence:
+
+```text
+bank.withdrawRun:withdraw next: assign state diverged at state.balance expected Int(6), observed Int(14)
+```
+
+The [tutorial](docs/tutorial.md) walks through a bank account from model to caught bug in about ten minutes.
+
+## What you write in the model
+
+Two annotations. Everything else is ordinary Quint.
+
+| Annotation | Where | Meaning |
+|---|---|---|
+| `/// @conformance` | above a `run` | Check the implementation against this scenario. |
+| `/// @primitive commit = [prepare, flushWal, commitPrepared]` | in the module comment | One implementation command performs these actions, in this order. |
+
+```quint
+module bank {
+  type BankState = { balance: int }
+
+  var state: BankState
+
+  action init = all {
+    state' = { balance: 10 },
+  }
+
+  action withdraw(amount) = all {
+    amount > 0,
+    state.balance >= amount,
+    state' = { balance: state.balance - amount },
+  }
+
+  /// @conformance
+  run withdrawRun = init
+    .then(withdraw(4))
+    .then(all {
+      assert(state.balance == 6),
+      state' = state,
+    })
 }
 ```
 
-Implement `PrimitiveDriver` or `AsyncPrimitiveDriver`, then pass the generated scenario, initial evidence, ownership descriptors, fixtures, and driver to `refine_scenario` or `refine_scenario_async`.
+Model conventions the compiler enforces, with a message that says how to fix each one:
+
+1. The model keeps its state in one record variable named `state`.
+2. A scenario is `init.then(action)...` and ends with `all { assert(...), state' = state }`.
+3. All scenarios share one initializer.
+
+Scenarios may import their model from other `.qnt` files.
+
+## What you write in Rust
+
+The generated trait has one method per action, plus two that describe your state:
+
+```rust
+impl Implementation for Bank {
+    type Evidence = Snapshot;
+
+    fn from_initial_state(initial_state: &RuntimeValue) -> Result<Self, String> { /* ... */ }
+    fn snapshot(&self) -> Snapshot { /* ... */ }
+
+    fn withdraw(&mut self, arguments: &[RuntimeValue]) -> Result<(), String> {
+        let [RuntimeValue::Int(amount)] = arguments else {
+            return Err(format!("withdraw expects one integer: {arguments:?}"));
+        };
+        self.withdraw(*amount)
+    }
+}
+```
+
+A `@primitive` becomes one method that returns a snapshot after each action it owns:
+
+```rust
+fn commit(&mut self, actions: &[ResolvedAction]) -> Result<Vec<Snapshot>, String>;
+```
+
+Add or rename an action in the model, compile, and `cargo` tells you which method is missing. Nothing is registered by hand.
+
+## What gets checked
+
+1. Every action in a scenario has an implementation command that owns it.
+2. Each command returns exactly one snapshot per action it owns.
+3. Every guard of every action holds on the snapshot before it.
+4. Every `state' = ...` assignment matches the complete snapshot after it.
+5. Named model constants the implementation binds as fixtures match their Rust values.
+
+Which scenarios your product must cover stays your decision; write them as `@conformance` runs.
+
+## Keep generated files honest
+
+Generated files are checked in and never edited. Add one line to CI:
+
+```console
+npx quint-refinements compile --check
+```
+
+It fails when `quint-refinements.json` or `src/generated_refinement.rs` no longer matches the model.
+
+## Command reference
+
+```text
+quint-refinements new <project-name> [--no-install]
+quint-refinements compile [spec.qnt] [--check] [--module <name>]
+                          [--artifact <path>] [--rust <path>]
+```
+
+`compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`.
 
 ## Examples
 
-New to refinement checking? Follow the [bank tutorial](docs/tutorial.md), which mirrors Quint's Getting Started flow and ends in a complete generated project.
-
-| Example | Demonstrates | Command |
+| Example | Shows | Run |
 |---|---|---|
-| `bank_account` | Step-by-step standalone project from Quint model to Rust refinement test | `cargo run --manifest-path examples/rust/bank_account/Cargo.toml` |
-| `two_phase_commit` | Full Quint model, generated traces, fixtures, 1-to-N ownership, exact state assignments | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit` |
-| `two_phase_commit_async` | The same scenario through the runtime-neutral async driver | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit_async` |
-| `ownership_records` | One-step ownership, aliases, compound sequences, deterministic aggregation | `cargo run --manifest-path bindings/rust/Cargo.toml --example ownership_records` |
-| `fixture_ownership` | Rust-owned Quint fixtures and drift validation | `cargo run --manifest-path bindings/rust/Cargo.toml --example fixture_ownership` |
-| `structural_values` | Lossless ITF records, maps, sets, tuples, and variants | `cargo run --manifest-path bindings/rust/Cargo.toml --example structural_values` |
-| `failure_modes` | Fail-closed behavior for partial action sequences and short evidence tapes | `cargo run --manifest-path bindings/rust/Cargo.toml --example failure_modes` |
+| [`bank_account`](examples/rust/bank_account) | The tutorial's finished project | `cargo run --manifest-path examples/rust/bank_account/Cargo.toml` |
+| [`two_phase_commit`](bindings/rust/examples/two_phase_commit) | `@primitive`: one `commit()` owning three actions, plus fixtures | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit` |
+| `two_phase_commit_async` | The same generated adapter through the async driver | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit_async` |
 
-The [examples guide](examples/README.md) provides an ordered learning path. The bank example is the generated default. The two-phase commit example demonstrates the advanced manual API for a compound Rust primitive that owns multiple Quint actions. Its files are intentionally kept together under [`bindings/rust/examples/two_phase_commit`](bindings/rust/examples/two_phase_commit):
+The [examples guide](examples/README.md) lists the smaller runtime examples in learning order.
 
-- `model.qnt` is the executable specification.
-- `app-config.mjs` declares the model entry points and retrieve vocabulary.
-- `generate-traces.mjs` invokes the reusable generator.
-- `traces.json` is checked-in generated evidence.
-- `coordinator.rs` is the implementation adapter used by sync and async examples.
+## Repository layout
 
-## Advanced manual generation
-
-The public CLI wraps the JavaScript generator and derives ordinary one-action ownership from Quint's AST. The lower-level generator remains available for integrations such as two-phase commit, where one production primitive deliberately owns an ordered sequence of Quint actions.
-
-```console
-npm ci
-npm run check:traces
-# After an intentional model or generator change:
-npm run generate:traces
+```text
+packages/compiler/   the npx CLI: Quint AST in, artifact and Rust adapter out
+bindings/rust/       the Rust runtime, published to crates.io
+examples/rust/       complete generated projects
+conformance/         artifact schema and golden cases every binding must pass
 ```
 
-The Quint version is pinned in the root npm package. Generated trace drift fails CI.
+The compiler and the Rust runtime release together under one version. Other language runtimes belong under `bindings/<language>` and read the same artifact.
 
-## Fixtures and evidence
+## Beyond the generated adapter
 
-`FixtureTable` binds stable model names, such as identifiers and finite universe sets, to Rust values implementing `QuintFixture`. `FixtureTable::validate` fails when generated JSON and Rust values diverge.
+The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and `Driver`, so you can drive scenarios yourself with `refine_scenario`, `refine_scenario_async` or a step-by-step `RefinementSession`. The lower-level JavaScript generator is exported as `quint-refinements/generate.mjs` for integrations that need custom capability names or partial refinement. See the [crate documentation](https://docs.rs/quint-refinements).
 
-Live snapshots implement `NormalizedRuntimeEvidence`. The name `state` conventionally resolves to the complete observed model state; domain-specific calls may be implemented through `resolve_call`.
+## Contributing
 
-Assignments are exact: for `state' = expression`, the right side is evaluated against the current snapshot and compared with the complete next snapshot. Structural map keys and set members are preserved rather than converted to strings.
-
-## Development
-
-```console
-npm ci
-npm test
-cargo test --locked --manifest-path bindings/rust/Cargo.toml --all-targets
-cargo fmt --manifest-path bindings/rust/Cargo.toml -- --check
-cargo clippy --locked --manifest-path bindings/rust/Cargo.toml --all-targets -- -D warnings
-cargo package --locked --manifest-path bindings/rust/Cargo.toml
-```
-
-The minimum supported Rust version is 1.85. The project is licensed under the MIT License.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The project is licensed under the MIT License.

@@ -3,7 +3,10 @@
 #[path = "../examples/two_phase_commit/coordinator.rs"]
 mod coordinator;
 
-use coordinator::Status;
+use coordinator::{
+    Status,
+    generated::{Driver, OWNERSHIP},
+};
 use quint_refinements::{
     ConformanceArtifact, FixtureTable, collect_ownership_records, refine_scenario,
 };
@@ -44,13 +47,15 @@ fn missing_fixture_owner_fails_closed() {
 fn universe_set_without_idle_fails_the_begin_membership_guard() {
     let artifact = ConformanceArtifact::parse(TRACES).expect("parse");
     let scenario = artifact.scenarios.first().expect("commitRun");
-    let ownership = collect_ownership_records(&[coordinator::OWNERSHIP]).expect("ownership");
+    let ownership = collect_ownership_records(&[OWNERSHIP]).expect("ownership");
     let fixtures = FixtureTable::new("two_phase_commit")
         .insert_set("statuses", &[Status::Open, Status::Prepared]);
-    let mut driver = coordinator::Coordinator::new();
+    let mut driver = Driver {
+        implementation: coordinator::Coordinator::new(),
+    };
     let error = refine_scenario(
         scenario,
-        driver.snapshot(),
+        driver.implementation.snapshot(),
         &ownership,
         &[
             "name:state",

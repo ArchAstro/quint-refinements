@@ -1,9 +1,9 @@
 [package]
 name = "quint-refinements"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Declarative refinement testing between Quint models and Rust implementations"
+description = "Check a Rust implementation against a Quint model with generated refinement obligations"
 license = "MIT"
 repository = "https://github.com/ArchAstro/quint-refinements"
 documentation = "https://docs.rs/quint-refinements"
@@ -14,6 +14,8 @@ include = [
     "/src/**",
     "/examples/*.rs",
     "/examples/two_phase_commit/coordinator.rs",
+    "/examples/two_phase_commit/generated.rs",
+    "/examples/two_phase_commit/model.qnt",
     "/examples/two_phase_commit/traces.json",
     "/tests/**",
     "/expression_vocabulary.json",
@@ -37,6 +39,12 @@ all = "deny"
 expect_used = "deny"
 panic = "deny"
 unwrap_used = "deny"
+
+# Runs the repository's shared binding corpus, which is not part of the
+# published crate; cargo drops this target when packaging.
+[[test]]
+name = "conformance_corpus"
+path = "corpus/corpus.rs"
 
 [[example]]
 name = "two_phase_commit"
