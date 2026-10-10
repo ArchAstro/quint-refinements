@@ -1,0 +1,240 @@
+:root {
+  --vp-c-brand-1: #5b36e0;
+  --vp-c-brand-2: #6d43f5;
+  --vp-c-brand-3: #7c5cff;
+  --vp-c-brand-soft: rgba(124, 92, 255, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #7c5cff 20%, #16b8c4);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #7c5cff 40%, #16b8c4 60%);
+  --vp-home-hero-image-filter: blur(56px);
+
+  --vp-font-family-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --qr-pass: #1a9d6b;
+  --qr-fail: #d6405a;
+}
+
+.dark {
+  --vp-c-brand-1: #a594ff;
+  --vp-c-brand-2: #8c75ff;
+  --vp-c-brand-3: #7458f2;
+  --vp-c-brand-soft: rgba(140, 117, 255, 0.18);
+  --qr-pass: #4fd6a0;
+  --qr-fail: #ff7d92;
+}
+
+@media (min-width: 960px) {
+  :root {
+    --vp-home-hero-image-filter: blur(72px);
+  }
+}
+
+/* Home hero: a terminal instead of a picture. */
+.VPHero .image-container {
+  width: 100%;
+  height: auto;
+  transform: none;
+}
+
+.VPHero .image-bg {
+  opacity: 0.45;
+}
+
+.hero-terminal {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: #14121f;
+  box-shadow: 0 24px 60px -20px rgba(40, 20, 120, 0.55);
+  text-align: left;
+}
+
+.hero-terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #1d1a2c;
+}
+
+.hero-terminal-bar span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3a3550;
+}
+
+.hero-terminal-bar em {
+  margin-left: 8px;
+  color: #8a84a8;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.hero-terminal pre {
+  margin: 0;
+  padding: 16px 18px 20px;
+  overflow-x: auto;
+  color: #e4e1f5;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.hero-terminal .prompt {
+  color: #8c75ff;
+}
+
+.hero-terminal .dim {
+  color: #7d7799;
+}
+
+.hero-terminal .pass {
+  color: #4fd6a0;
+}
+
+.hero-terminal .fail {
+  color: #ff7d92;
+}
+
+.hero-terminal .path {
+  color: #6fd3e0;
+}
+
+@media (max-width: 959px) {
+  .VPHero .image {
+    margin: 32px 0 0;
+  }
+}
+
+/* Home sections below the feature grid. */
+.home-section {
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 56px 24px 0;
+}
+
+@media (min-width: 640px) {
+  .home-section {
+    padding: 64px 48px 0;
+  }
+}
+
+@media (min-width: 960px) {
+  .home-section {
+    padding: 72px 64px 0;
+  }
+}
+
+.home-section > h2 {
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.home-section > p.lead {
+  max-width: 680px;
+  margin: 0 0 24px;
+  color: var(--vp-c-text-2);
+  font-size: 16px;
+}
+
+.home-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.home-step {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+}
+
+.home-step b {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 10px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  font-size: 13px;
+}
+
+.home-step h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.home-step p {
+  margin: 0;
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.home-path {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.home-path a {
+  display: block;
+  padding: 18px 20px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.home-path a:hover {
+  border-color: var(--vp-c-brand-2);
+  transform: translateY(-2px);
+}
+
+.home-path small {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.home-path strong {
+  display: block;
+  margin: 4px 0;
+  font-size: 16px;
+}
+
+.home-path span {
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .home-steps,
+  .home-path {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.home-section .vp-doc {
+  margin-top: 8px;
+}
+
+.home-end {
+  padding-bottom: 72px;
+}

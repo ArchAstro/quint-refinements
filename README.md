@@ -3,6 +3,7 @@
 [![CI](https://github.com/ArchAstro/quint-refinements/actions/workflows/ci.yml/badge.svg)](https://github.com/ArchAstro/quint-refinements/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/quint-refinements)](https://www.npmjs.com/package/quint-refinements)
 [![crates.io](https://img.shields.io/crates/v/quint-refinements)](https://crates.io/crates/quint-refinements)
+[![docs](https://img.shields.io/badge/docs-archastro.github.io-6d43f5)](https://archastro.github.io/quint-refinements/)
 
 Check that your real code does what your [Quint](https://quint.sh/) model says.
 
@@ -43,6 +44,8 @@ bank.withdrawRun:withdraw next: assign state diverged at state.balance expected 
 
 ## Learn it step by step
 
+The same pages are on the [documentation site](https://archastro.github.io/quint-refinements/), with search.
+
 Each page builds a complete project that CI compiles and runs.
 
 | | Page | You learn |
@@ -52,7 +55,7 @@ Each page builds a complete project that CI compiles and runs.
 | 3 | [A transaction commit](docs/guides/one-command-many-actions.md) | `@primitive`, intermediate snapshots, binding constants to Rust |
 | 4 | [CI](docs/guides/ci.md) | `compile --check`, generating into an existing crate |
 
-Then: [how it works](docs/how-it-works.md) and [troubleshooting](docs/troubleshooting.md).
+Then: [how it works](docs/how-it-works.md) and [troubleshooting](docs/troubleshooting.md). Reference: [command line](docs/reference/cli.md), [model annotations and rules](docs/reference/model.md), [generated Rust](docs/reference/rust.md).
 
 ## What you write in the model
 
@@ -177,6 +180,8 @@ packages/compiler/   the npx CLI: Quint AST in, artifact and Rust adapter out
 bindings/rust/       the Rust runtime, published to crates.io
 examples/rust/       complete generated projects
 conformance/         artifact schema and golden cases every binding must pass
+docs/                guides and reference, as Markdown
+website/             the documentation site built from docs/
 ```
 
 The compiler and the Rust runtime release together under one version. Other language runtimes belong under `bindings/<language>` and read the same artifact.
