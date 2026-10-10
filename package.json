@@ -4,7 +4,7 @@
   "private": false,
   "description": "Check a real implementation against a Quint model: generated scenarios, typed adapters and refinement checks",
   "license": "MIT",
-  "homepage": "https://github.com/ArchAstro/quint-refinements/blob/main/docs/README.md",
+  "homepage": "https://archastro.github.io/quint-refinements/",
   "bugs": "https://github.com/ArchAstro/quint-refinements/issues",
   "keywords": [
     "quint",

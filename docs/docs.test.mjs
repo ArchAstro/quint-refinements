@@ -48,3 +48,24 @@ test("relative links point at files that exist", () => {
     }
   }
 });
+
+test("links to a section name a heading that exists", () => {
+  // GitHub's heading anchors; the documentation site is configured to match.
+  const slug = heading =>
+    heading.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/g, "-");
+  const link = /\]\((?!https?:|mailto:)([^)#\s]*)#([^)\s]+)\)/g;
+  for (const page of pages) {
+    for (const [, target, fragment] of fs.readFileSync(page, "utf8").matchAll(link)) {
+      const resolved = target ? path.resolve(path.dirname(page), target) : page;
+      if (!resolved.endsWith(".md")) {
+        continue;
+      }
+      const headings = [...fs.readFileSync(resolved, "utf8").matchAll(/^#+ (.*)$/gm)]
+        .map(([, heading]) => slug(heading));
+      assert.ok(
+        headings.includes(fragment),
+        `${path.relative(repositoryRoot, page)} links to missing section #${fragment} in ${target || "itself"}`,
+      );
+    }
+  }
+});

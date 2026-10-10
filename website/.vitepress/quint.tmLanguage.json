@@ -1,0 +1,40 @@
+{
+  "name": "quint",
+  "scopeName": "source.quint",
+  "patterns": [
+    { "name": "comment.line.documentation.quint", "match": "///.*$" },
+    { "name": "comment.line.double-slash.quint", "match": "//.*$" },
+    { "name": "comment.block.quint", "begin": "/\\*", "end": "\\*/" },
+    { "name": "string.quoted.double.quint", "begin": "\"", "end": "\"" },
+    {
+      "match": "\\b(module)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.other.quint" },
+        "2": { "name": "entity.name.namespace.quint" }
+      }
+    },
+    {
+      "match": "\\b(pure\\s+val|pure\\s+def|val|def|action|run|temporal|nondet|var|const|type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.other.quint" },
+        "2": { "name": "entity.name.function.quint" }
+      }
+    },
+    {
+      "name": "keyword.control.quint",
+      "match": "\\b(if|else|match|all|any|and|or|iff|implies|not)\\b"
+    },
+    {
+      "name": "keyword.other.quint",
+      "match": "\\b(module|import|export|from|as|pure|val|def|action|run|temporal|nondet|var|const|type|assume)\\b"
+    },
+    { "name": "storage.type.quint", "match": "\\b(int|str|bool|Set|List|Map|Rec|Tup)\\b" },
+    { "name": "constant.language.quint", "match": "\\b(true|false|Int|Nat|Bool)\\b" },
+    { "name": "constant.numeric.quint", "match": "\\b(0x[0-9a-fA-F_]+|[0-9][0-9_]*)\\b" },
+    { "name": "entity.name.type.quint", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" },
+    { "name": "support.function.quint", "match": "\\b(assert|then|expect|reps|fail|oneOf|always|eventually|next|orKeep|mustChange|enabled|weakFair|strongFair)\\b" },
+    { "name": "entity.name.function.call.quint", "match": "\\b[a-z_][A-Za-z0-9_]*(?=\\()" },
+    { "name": "variable.other.primed.quint", "match": "\\b[a-z_][A-Za-z0-9_]*'" },
+    { "name": "keyword.operator.quint", "match": "=>|->|==|!=|<=|>=|\\.\\.\\.|[=<>+\\-*/%^|]" }
+  ]
+}

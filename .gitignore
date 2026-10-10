@@ -1,3 +1,5 @@
 target/
 node_modules/
 .aster/
+website/.vitepress/dist/
+website/.vitepress/cache/

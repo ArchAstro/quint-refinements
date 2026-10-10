@@ -29,6 +29,9 @@ whole integration is generated from the model.
 - Step-by-step guides for constants and branching, `@primitive`, and CI, with
   how-it-works and troubleshooting pages. Guide code is quoted from example
   projects that CI compiles and runs.
+- A documentation site at <https://archastro.github.io/quint-refinements/>,
+  built from `docs/`, with a quick start and reference pages for the command
+  line, the model annotations and the generated Rust.
 - `compile` defaults to `model.qnt` and accepts `--artifact` and `--rust` to
   place generated files in an existing crate.
 - The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and

@@ -17,4 +17,11 @@ model: the example adapters, their artifacts, and the conformance corpus.
 3. A new compiler capability needs no new configuration surface if the Quint
    AST already holds the fact. See `rules/generate-derived-boilerplate.md`.
 
+## Documentation
+
+Write documentation as Markdown in `docs/`. The [documentation site](https://archastro.github.io/quint-refinements/) is built from those files; see [`website/README.md`](website/README.md) to preview it.
+
+1. Quote example code under a `<!-- from path -->` comment. `npm run test:docs` fails if the block is not in that file.
+2. `npm run test:docs` also checks every relative link and section anchor.
+
 Please add a focused regression test for behavior changes.
