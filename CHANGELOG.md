@@ -41,7 +41,8 @@ whole integration is generated from the model.
 - One `vX.Y.Z` tag publishes the crate and the npm package, then runs the
   published quick start.
 - A Raft example and guide: leader election, log replication and commit on
-  three nodes, implemented with the Rust standard library only.
+  three nodes, with safety invariants checked by simulation in CI, and an
+  implementation that uses only the Rust standard library.
 
 ### Changed
 
@@ -62,6 +63,9 @@ whole integration is generated from the model.
 
 - A divergence inside a map-valued field names the key, as in
   `state.nodes["n1"].role`, instead of printing both whole maps.
+- `and`, `or`, `actionAll` and `actionAny` stop at the first argument that
+  decides the result, as in Quint. A guard such as
+  `l.length() > i and l[i] == x` no longer fails with an out-of-bounds error.
 - The 0.1.0 starter model could not refine: its state was a bare integer.
 - Projects scaffolded by 0.1.0 depended on a crate version that was never
   published.

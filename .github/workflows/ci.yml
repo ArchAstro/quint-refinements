@@ -31,6 +31,8 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm test
+      - name: Check the Raft model's safety properties
+        run: npx quint run examples/rust/raft/model.qnt --step=step --invariant=safety --max-steps=40 --max-samples=20000
       - name: Check the standalone guide projects
         run: |
           for project in bank_account shop_orders transaction_commit raft; do
