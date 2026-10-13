@@ -54,7 +54,8 @@ Each page builds a complete project that CI compiles and runs.
 | 2 | [A shop](docs/guides/shop-orders.md) | Named constants, `if`/`else` actions, a model in two files |
 | 3 | [A transaction commit](docs/guides/one-command-many-actions.md) | `@primitive`, intermediate snapshots, binding constants to Rust |
 | 4 | [Raft](docs/guides/raft.md) | A whole cluster as one state, elections, commit, Raft bugs caught |
-| 5 | [CI](docs/guides/ci.md) | `compile --check`, generating into an existing crate |
+| 5 | [Raft over a real network](docs/guides/raft-network.md) | Messages that are lost, delayed, reordered and duplicated; partitions |
+| 6 | [CI](docs/guides/ci.md) | `compile --check`, generating into an existing crate |
 
 Then: [how it works](docs/how-it-works.md) and [troubleshooting](docs/troubleshooting.md). Reference: [command line](docs/reference/cli.md), [model annotations and rules](docs/reference/model.md), [generated Rust](docs/reference/rust.md).
 
@@ -170,6 +171,7 @@ quint-refinements compile [spec.qnt] [--check] [--module <name>]
 | [`shop_orders`](examples/rust/shop_orders) | Constants, a branching action, model and scenarios in separate files | `cargo run --manifest-path examples/rust/shop_orders/Cargo.toml` |
 | [`transaction_commit`](examples/rust/transaction_commit) | `@primitive` and a constant bound to Rust, as a standalone project | `cargo run --manifest-path examples/rust/transaction_commit/Cargo.toml` |
 | [`raft`](examples/rust/raft) | Leader election, log replication and commit on three nodes, standard library only | `cargo run --manifest-path examples/rust/raft/Cargo.toml` |
+| [`raft_network`](examples/rust/raft_network) | The same Raft over a network that loses, delays, reorders and duplicates messages | `cargo run --manifest-path examples/rust/raft_network/Cargo.toml` |
 | [`two_phase_commit`](bindings/rust/examples/two_phase_commit) | `@primitive`: one `commit()` owning three actions, plus fixtures | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit` |
 | `two_phase_commit_async` | The same generated adapter through the async driver | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit_async` |
 

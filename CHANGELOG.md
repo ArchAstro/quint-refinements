@@ -43,6 +43,8 @@ whole integration is generated from the model.
 - A Raft example and guide: leader election, log replication and commit on
   three nodes, with safety invariants checked by simulation in CI, and an
   implementation that uses only the Rust standard library.
+- A second Raft example over an unreliable network, where messages can be
+  lost, delayed, reordered or duplicated, with its own guide.
 
 ### Changed
 
