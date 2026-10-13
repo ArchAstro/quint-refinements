@@ -23,6 +23,13 @@ struct Node {
     commit: i64,
 }
 
+impl Node {
+    /// How up to date the log is: last term first, then length.
+    fn log_rank(&self) -> (i64, usize) {
+        (self.log.last().copied().unwrap_or(0), self.log.len())
+    }
+}
+
 /// The code under test: a Raft cluster whose nodes share one process.
 #[derive(Clone)]
 struct Cluster {
@@ -63,23 +70,23 @@ impl Cluster {
         }
         node.term += 1;
         node.role = Role::Candidate;
-        node.voted_for = name.to_owned();
+        name.clone_into(&mut node.voted_for);
         node.votes = BTreeSet::from([name.to_owned()]);
         Ok(())
     }
 
     fn request_vote(&mut self, candidate: &str, voter: &str) -> Result<(), String> {
-        let (term, log_len) = match self.node(candidate)? {
-            c if c.role == Role::Candidate => (c.term, c.log.len()),
+        let (term, rank) = match self.node(candidate)? {
+            c if c.role == Role::Candidate => (c.term, c.log_rank()),
             _ => return Err(format!("{candidate} is not campaigning")),
         };
         let v = self.node_mut(voter)?;
-        if term <= v.term || log_len < v.log.len() {
+        if term <= v.term || rank < v.log_rank() {
             return Err(format!("{voter} refuses to vote for {candidate}"));
         }
         v.term = term;
         v.role = Role::Follower;
-        v.voted_for = candidate.to_owned();
+        candidate.clone_into(&mut v.voted_for);
         self.node_mut(candidate)?.votes.insert(voter.to_owned());
         Ok(())
     }
@@ -106,26 +113,26 @@ impl Cluster {
     fn append_entries(&mut self, leader: &str, follower: &str) -> Result<(), String> {
         let l = self.node(leader)?.clone();
         let f = self.node_mut(follower)?;
-        if l.role != Role::Leader || l.term < f.term {
+        if leader == follower || l.role != Role::Leader || l.term < f.term {
             return Err(format!("{follower} rejects stale leader {leader}"));
         }
         f.term = l.term;
         f.role = Role::Follower;
         f.log = l.log;
-        f.commit = l.commit;
+        f.commit = f.commit.max(l.commit);
         Ok(())
     }
 
     fn commit(&mut self, leader: &str, index: i64) -> Result<(), String> {
-        let stored = self
-            .nodes
-            .values()
-            .filter(|node| node.log.len() as i64 >= index)
-            .count();
+        // Raft commits by counting only entries from the leader's own term.
+        // Only the leader writes those, so it holds every one it counts.
+        let term = self.node(leader)?.term;
+        let position = usize::try_from(index - 1).ok();
+        let holds = |node: &Node| position.and_then(|i| node.log.get(i)) == Some(&term);
+        let stored = self.nodes.values().filter(|node| holds(node)).count();
         let quorum = self.quorum();
         let l = self.node_mut(leader)?;
-        let own_term = index >= 1 && l.log.get(index as usize - 1) == Some(&l.term);
-        if l.role != Role::Leader || index <= l.commit || !own_term || stored < quorum {
+        if l.role != Role::Leader || index <= l.commit || stored < quorum {
             return Err(format!("{leader} cannot commit entry {index}"));
         }
         l.commit = index;
@@ -250,5 +257,65 @@ mod tests {
         if let Err(error) = refine_all::<Cluster>() {
             panic!("refinement failed: {error}");
         }
+    }
+
+    /// The election restriction, on logs no scenario reaches.
+    #[test]
+    fn votes_go_to_logs_at_least_as_up_to_date() {
+        let vote = |candidate: Vec<i64>, voter: Vec<i64>| {
+            let mut c = Cluster::new(["c", "v"].map(String::from));
+            c.timeout("c").unwrap();
+            c.nodes.get_mut("c").unwrap().log = candidate;
+            c.nodes.get_mut("v").unwrap().log = voter;
+            c.request_vote("c", "v").is_ok()
+        };
+        assert!(vote(vec![2], vec![1, 1]), "a newer last term beats length");
+        assert!(!vote(vec![1, 1], vec![2]), "an older last term loses");
+        assert!(!vote(vec![2], vec![2, 2]), "same last term: shorter loses");
+        assert!(vote(vec![2, 2], vec![2, 2]), "an equal log wins");
+    }
+
+    /// Scenarios only take steps the model allows, so they never reach the
+    /// code that refuses a step. This test does.
+    #[test]
+    fn cluster_refuses_what_raft_refuses() {
+        let mut c = Cluster::new(["n1", "n2", "n3"].map(String::from));
+        assert!(c.request_vote("n1", "n2").is_err(), "n1 is not campaigning");
+        assert!(c.client_request("n1").is_err(), "n1 is not the leader");
+        c.timeout("n1").unwrap();
+        assert!(c.become_leader("n1").is_err(), "one vote is not a majority");
+        c.request_vote("n1", "n2").unwrap();
+        assert!(c.request_vote("n1", "n2").is_err(), "one vote per term");
+        assert!(c.become_leader("n2").is_err(), "n2 is not a candidate");
+        c.become_leader("n1").unwrap();
+        assert!(c.become_leader("n1").is_err(), "n1 already leads");
+        assert!(
+            c.request_vote("n1", "n3").is_err(),
+            "a leader is not campaigning"
+        );
+        assert!(c.timeout("n1").is_err(), "a leader does not time out");
+        assert!(c.append_entries("n2", "n3").is_err(), "n2 is not a leader");
+        assert!(
+            c.append_entries("n1", "n1").is_err(),
+            "a leader is not its own follower"
+        );
+        assert!(c.commit("n1", 1).is_err(), "the log is empty");
+        c.client_request("n1").unwrap();
+        assert!(c.commit("n1", 1).is_err(), "only n1 stores the entry");
+        c.append_entries("n1", "n2").unwrap();
+        c.timeout("n3").unwrap();
+        c.timeout("n3").unwrap();
+        assert!(c.request_vote("n3", "n2").is_err(), "n3's log is shorter");
+        c.timeout("n2").unwrap();
+        c.timeout("n2").unwrap();
+        c.request_vote("n2", "n3").unwrap();
+        c.become_leader("n2").unwrap();
+        assert!(c.append_entries("n1", "n2").is_err(), "n1's term is stale");
+        assert!(c.commit("n2", 1).is_err(), "entry 1 is from an older term");
+        c.client_request("n2").unwrap();
+        c.append_entries("n2", "n3").unwrap();
+        assert!(c.commit("n3", 2).is_err(), "n3 is not the leader");
+        c.commit("n2", 2).unwrap();
+        assert!(c.commit("n2", 2).is_err(), "entry 2 is already committed");
     }
 }

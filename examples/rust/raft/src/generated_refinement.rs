@@ -15,7 +15,7 @@ quint_ownership! {
         primitive: "raft.appendEntries",
         refines: ["appendEntries"],
         aliases: [],
-        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votes", "path:state.nodes"],
+        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votedFor", "path:get.votes", "path:state.nodes"],
         retrieve: ["name:state"],
     };
 }
@@ -25,7 +25,7 @@ quint_ownership! {
         primitive: "raft.becomeLeader",
         refines: ["becomeLeader"],
         aliases: [],
-        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votes", "path:state.nodes"],
+        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votedFor", "path:get.votes", "path:state.nodes"],
         retrieve: ["name:state"],
     };
 }
@@ -35,7 +35,7 @@ quint_ownership! {
         primitive: "raft.clientRequest",
         refines: ["clientRequest"],
         aliases: [],
-        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votes", "path:state.nodes"],
+        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votedFor", "path:get.votes", "path:state.nodes"],
         retrieve: ["name:state"],
     };
 }
@@ -45,7 +45,7 @@ quint_ownership! {
         primitive: "raft.commit",
         refines: ["commit"],
         aliases: [],
-        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votes", "path:state.nodes"],
+        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votedFor", "path:get.votes", "path:state.nodes"],
         retrieve: ["name:state"],
     };
 }
@@ -55,7 +55,7 @@ quint_ownership! {
         primitive: "raft.grantVote",
         refines: ["grantVote"],
         aliases: [],
-        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votes", "path:state.nodes"],
+        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votedFor", "path:get.votes", "path:state.nodes"],
         retrieve: ["name:state"],
     };
 }
@@ -65,7 +65,7 @@ quint_ownership! {
         primitive: "raft.timeout",
         refines: ["timeout"],
         aliases: [],
-        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votes", "path:state.nodes"],
+        observations: ["path:get.commit", "path:get.log", "path:get.role", "path:get.term", "path:get.votedFor", "path:get.votes", "path:state.nodes"],
         retrieve: ["name:state"],
     };
 }
@@ -90,8 +90,11 @@ pub const RETRIEVE: &[&str] = &[
     "name:NODES",
     "name:QUORUM",
     "name:state",
+    "operator:List",
     "operator:Rec",
     "operator:Set",
+    "operator:actionAll",
+    "operator:and",
     "operator:append",
     "operator:assign",
     "operator:eq",
@@ -102,10 +105,13 @@ pub const RETRIEVE: &[&str] = &[
     "operator:iadd",
     "operator:igt",
     "operator:igte",
+    "operator:ilte",
     "operator:isub",
+    "operator:ite",
     "operator:length",
     "operator:neq",
     "operator:nth",
+    "operator:or",
     "operator:set",
     "operator:size",
     "operator:union",
@@ -114,6 +120,7 @@ pub const RETRIEVE: &[&str] = &[
     "path:get.log",
     "path:get.role",
     "path:get.term",
+    "path:get.votedFor",
     "path:get.votes",
     "path:state.nodes",
 ];

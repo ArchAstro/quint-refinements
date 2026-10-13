@@ -1146,6 +1146,9 @@ fn evaluate_call<E: NormalizedRuntimeEvidence>(
     if operator == "ite" {
         return evaluate_ite(arguments, eval, environment);
     }
+    if matches!(operator, "and" | "or" | "actionAll" | "actionAny") {
+        return evaluate_short_circuit(operator, arguments, eval, environment);
+    }
     let values = arguments
         .iter()
         .map(|argument| evaluate_expression(argument, eval, environment))
@@ -1155,26 +1158,6 @@ fn evaluate_call<E: NormalizedRuntimeEvidence>(
         ("eq", [left, right]) => Some(Ok(RuntimeValue::Bool(left == right))),
         ("neq", [left, right]) => Some(Ok(RuntimeValue::Bool(left != right))),
         ("not", [RuntimeValue::Bool(value)]) => Some(Ok(RuntimeValue::Bool(!value))),
-        ("actionAll", values) => Some(
-            values
-                .iter()
-                .map(|value| match value {
-                    RuntimeValue::Bool(value) => Ok(*value),
-                    _ => Err("actionAll accepts only normalized booleans".to_owned()),
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(|values| RuntimeValue::Bool(values.into_iter().all(|value| value))),
-        ),
-        ("actionAny", values) => Some(
-            values
-                .iter()
-                .map(|value| match value {
-                    RuntimeValue::Bool(value) => Ok(*value),
-                    _ => Err("actionAny accepts only normalized booleans".to_owned()),
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(|values| RuntimeValue::Bool(values.into_iter().any(|value| value))),
-        ),
         ("Present", [value]) => Some(Ok(RuntimeValue::Present(Box::new(value.clone())))),
         ("variant", [RuntimeValue::Text(tag), value]) => Some(Ok(RuntimeValue::Variant {
             tag: tag.clone(),
@@ -1227,26 +1210,6 @@ fn evaluate_call<E: NormalizedRuntimeEvidence>(
         ("size", [RuntimeValue::Record(values)]) => {
             Some(Ok(RuntimeValue::Int(values.len() as i64)))
         }
-        ("and", values) => Some(
-            values
-                .iter()
-                .map(|value| match value {
-                    RuntimeValue::Bool(value) => Ok(*value),
-                    _ => Err("and accepts only normalized booleans".to_owned()),
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(|values| RuntimeValue::Bool(values.into_iter().all(|value| value))),
-        ),
-        ("or", values) => Some(
-            values
-                .iter()
-                .map(|value| match value {
-                    RuntimeValue::Bool(value) => Ok(*value),
-                    _ => Err("or accepts only normalized booleans".to_owned()),
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(|values| RuntimeValue::Bool(values.into_iter().any(|value| value))),
-        ),
         ("with", [RuntimeValue::Record(fields), RuntimeValue::Text(key), value]) => {
             let mut updated = fields.clone();
             updated.insert(key.clone(), value.clone());
@@ -1438,6 +1401,28 @@ fn structural_difference(
             "{path} expected {expected:?}, observed {observed:?}"
         )),
     }
+}
+
+/// Quint's `and` and `or` stop at the first argument that decides the result,
+/// so a later argument may rely on an earlier one, as in
+/// `l.length() > i and l[i] == x`.
+fn evaluate_short_circuit<E: NormalizedRuntimeEvidence>(
+    operator: &str,
+    arguments: &[serde_json::Value],
+    eval: &Eval<'_, E>,
+    environment: &BTreeMap<String, RuntimeValue>,
+) -> Result<RuntimeValue, String> {
+    let decisive = matches!(operator, "or" | "actionAny");
+    for argument in arguments {
+        match evaluate_expression(argument, eval, environment)? {
+            RuntimeValue::Bool(value) if value == decisive => {
+                return Ok(RuntimeValue::Bool(decisive));
+            }
+            RuntimeValue::Bool(_) => {}
+            _ => return Err(format!("{operator} accepts only normalized booleans")),
+        }
+    }
+    Ok(RuntimeValue::Bool(!decisive))
 }
 
 fn evaluate_ite<E: NormalizedRuntimeEvidence>(
@@ -1679,7 +1664,64 @@ fn map_from_values(values: &[RuntimeValue]) -> Result<RuntimeValue, String> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{RuntimeValue, structural_difference};
+    use super::{
+        Eval, NormalizedRuntimeEvidence, RuntimeValue, evaluate_expression, structural_difference,
+    };
+
+    struct NoState;
+
+    impl NormalizedRuntimeEvidence for NoState {
+        fn resolve_name(&self, name: &str) -> Result<RuntimeValue, String> {
+            Err(format!("no name {name}"))
+        }
+
+        fn resolve_call(
+            &self,
+            _: &str,
+            _: &[RuntimeValue],
+        ) -> Option<Result<RuntimeValue, String>> {
+            None
+        }
+    }
+
+    fn evaluate(expression: serde_json::Value) -> Result<RuntimeValue, String> {
+        let eval = Eval {
+            current: &NoState,
+            before: &NoState,
+            after: &NoState,
+            assignment_sink: None,
+        };
+        evaluate_expression(&expression, &eval, &BTreeMap::new())
+    }
+
+    #[test]
+    fn and_and_or_stop_at_the_deciding_argument_like_quint() {
+        // `[][0]` fails when evaluated; Quint never reaches it here.
+        let out_of_bounds = serde_json::json!({
+            "kind": "call", "operator": "nth",
+            "arguments": [{ "kind": "call", "operator": "List", "arguments": [] }, { "kind": "int", "value": 0 }],
+        });
+        let call = |operator: &str, first: bool| {
+            serde_json::json!({
+                "kind": "call", "operator": operator,
+                "arguments": [{ "kind": "bool", "value": first }, out_of_bounds],
+            })
+        };
+        assert_eq!(evaluate(call("and", false)), Ok(RuntimeValue::Bool(false)));
+        assert_eq!(
+            evaluate(call("actionAll", false)),
+            Ok(RuntimeValue::Bool(false))
+        );
+        assert_eq!(evaluate(call("or", true)), Ok(RuntimeValue::Bool(true)));
+        assert_eq!(
+            evaluate(call("actionAny", true)),
+            Ok(RuntimeValue::Bool(true))
+        );
+        assert!(
+            evaluate(call("and", true)).is_err(),
+            "a reached argument still fails"
+        );
+    }
 
     fn nodes(n1_role: &str) -> RuntimeValue {
         let node = |role: &str| {
