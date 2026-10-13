@@ -532,4 +532,4 @@ Between the scenarios and the unit tests, each of 29 single-line mutations of `s
 2. Replace whole-log copying with Raft's `prevLogIndex` check, in the model first. Run the simulator, then the scenarios.
 3. Add a fourth node and set `QUORUM` to 3. The Rust derives its quorum from the cluster size, so only the model changes.
 
-Next: [keep generated files honest in CI](ci.md).
+Next: [Raft over a real network](raft-network.md), where messages are lost, delayed, reordered and duplicated.

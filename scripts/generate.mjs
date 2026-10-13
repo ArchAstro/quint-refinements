@@ -31,6 +31,9 @@ const models = [
     source: "examples/rust/raft/model.qnt",
   },
   {
+    source: "examples/rust/raft_network/model.qnt",
+  },
+  {
     source: "bindings/rust/examples/two_phase_commit/model.qnt",
     artifact: "bindings/rust/examples/two_phase_commit/traces.json",
     rust: "bindings/rust/examples/two_phase_commit/generated.rs",
