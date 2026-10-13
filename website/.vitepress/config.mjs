@@ -128,6 +128,7 @@ export default defineConfig({
         items: [
           { text: "Constants, branching, two files", link: "/guides/shop-orders" },
           { text: "One command, several actions", link: "/guides/one-command-many-actions" },
+          { text: "Raft", link: "/guides/raft" },
           { text: "Keep generated files honest in CI", link: "/guides/ci" },
         ],
       },
@@ -155,6 +156,7 @@ export default defineConfig({
             text: "transaction_commit",
             link: `${repository}/tree/main/examples/rust/transaction_commit`,
           },
+          { text: "raft", link: `${repository}/tree/main/examples/rust/raft` },
         ],
       },
     ],

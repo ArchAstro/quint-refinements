@@ -113,7 +113,7 @@ bank.withdrawRun:withdraw next: assign state diverged at state.balance expected 
 
 <div class="home-section home-end">
 
-## Learn it in four steps
+## Learn it step by step
 
 <p class="lead">Each page builds a complete project that CI compiles and runs, so the code you read is the code that passes.</p>
 
@@ -121,7 +121,8 @@ bank.withdrawRun:withdraw next: assign state diverged at state.balance expected 
   <a href="./tutorial"><small>1 · Tutorial</small><strong>A bank account</strong><span>The whole loop: model, compile, implement, catch a bug.</span></a>
   <a href="./guides/shop-orders"><small>2 · Guide</small><strong>A shop</strong><span>Named constants, if/else actions, a model in two files.</span></a>
   <a href="./guides/one-command-many-actions"><small>3 · Guide</small><strong>A transaction commit</strong><span>@primitive, intermediate snapshots, binding constants to Rust.</span></a>
-  <a href="./guides/ci"><small>4 · Guide</small><strong>CI</strong><span>compile --check, generating into an existing crate.</span></a>
+  <a href="./guides/raft"><small>4 · Guide</small><strong>Raft</strong><span>Elections, replication and commit, and the Raft bugs the checker catches.</span></a>
+  <a href="./guides/ci"><small>5 · Guide</small><strong>CI</strong><span>compile --check, generating into an existing crate.</span></a>
 </div>
 
 </div>

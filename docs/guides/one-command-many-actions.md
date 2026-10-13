@@ -314,4 +314,4 @@ refinement failed: fixture statuses JSON diverged: artifact {"#set":[{"tag":"Abo
 2. Leave it out when each action maps to its own call. That is the default and needs no annotation.
 3. Every action belongs to exactly one command. The compiler rejects an action claimed twice, or a `@primitive` that names an action no scenario runs.
 
-Next: [keep generated files honest in CI](ci.md).
+Next: [Raft](raft.md).

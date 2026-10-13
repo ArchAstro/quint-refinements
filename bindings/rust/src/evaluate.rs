@@ -1411,6 +1411,28 @@ fn structural_difference(
             }
             None
         }
+        (RuntimeValue::Map(expected_entries), RuntimeValue::Map(observed_entries)) => {
+            let key_path = |key: &RuntimeValue| match key {
+                RuntimeValue::Text(text) => format!("{path}[{text:?}]"),
+                RuntimeValue::Int(value) => format!("{path}[{value}]"),
+                other => format!("{path}[{other:?}]"),
+            };
+            if let Some(key) = expected_entries
+                .keys()
+                .find(|key| !observed_entries.contains_key(*key))
+            {
+                return Some(format!("{} missing from observed state", key_path(key)));
+            }
+            if let Some(key) = observed_entries
+                .keys()
+                .find(|key| !expected_entries.contains_key(*key))
+            {
+                return Some(format!("{} unexpected in observed state", key_path(key)));
+            }
+            expected_entries.iter().find_map(|(key, expected_value)| {
+                structural_difference(expected_value, &observed_entries[key], &key_path(key))
+            })
+        }
         _ if expected == observed => None,
         _ => Some(format!(
             "{path} expected {expected:?}, observed {observed:?}"
@@ -1651,4 +1673,45 @@ fn map_from_values(values: &[RuntimeValue]) -> Result<RuntimeValue, String> {
         entries.insert(key.clone(), value.clone());
     }
     Ok(RuntimeValue::Map(entries))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{RuntimeValue, structural_difference};
+
+    fn nodes(n1_role: &str) -> RuntimeValue {
+        let node = |role: &str| {
+            RuntimeValue::Record(BTreeMap::from([(
+                "role".to_owned(),
+                RuntimeValue::Text(role.to_owned()),
+            )]))
+        };
+        RuntimeValue::Map(BTreeMap::from([
+            (RuntimeValue::Text("n1".to_owned()), node(n1_role)),
+            (RuntimeValue::Text("n2".to_owned()), node("Leader")),
+        ]))
+    }
+
+    #[test]
+    fn a_divergence_inside_a_map_names_the_key_and_field() {
+        assert_eq!(
+            structural_difference(&nodes("Follower"), &nodes("Leader"), "state.nodes").as_deref(),
+            Some(r#"state.nodes["n1"].role expected Text("Follower"), observed Text("Leader")"#),
+        );
+    }
+
+    #[test]
+    fn a_missing_map_key_is_named() {
+        let RuntimeValue::Map(mut fewer) = nodes("Leader") else {
+            unreachable!()
+        };
+        fewer.remove(&RuntimeValue::Text("n2".to_owned()));
+        assert_eq!(
+            structural_difference(&nodes("Leader"), &RuntimeValue::Map(fewer), "state.nodes")
+                .as_deref(),
+            Some(r#"state.nodes["n2"] missing from observed state"#),
+        );
+    }
 }
