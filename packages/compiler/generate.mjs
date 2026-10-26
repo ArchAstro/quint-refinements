@@ -1408,7 +1408,9 @@ function concreteValue(node, context) {
     return { "#tup": values };
   }
   if (node.opcode === "Map") {
-    return { "#map": values };
+    // Quint builds a map from (key, value) tuples; ITF writes each entry as a
+    // [key, value] pair.
+    return { "#map": values.map(entry => entry["#tup"]) };
   }
   return {
     tag: node.opcode,

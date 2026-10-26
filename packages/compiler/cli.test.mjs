@@ -221,6 +221,36 @@ test("constants passed to actions take their value from the model", () => {
   });
 });
 
+test("a map constant reaches the runtime as ITF key/value pairs", () => {
+  withTemporaryDirectory(directory => {
+    writeModel(directory, `module ledger {
+  type State = { balances: str -> int }
+  pure val opening: str -> int = Map("alice" -> 3, "bob" -> 4)
+  pure val grid: (int, int) -> str = Map((0, 1) -> "x")
+  var state: State
+  action init = all { state' = { balances: Map() } }
+  action open(b: str -> int, g: (int, int) -> str): bool = all {
+    g.keys().contains((0, 1)),
+    state' = { balances: b },
+  }
+  /// @conformance
+  run openRun = init
+    .then(open(opening, grid))
+    .then(all { assert(state.balances.get("bob") == 4), state' = state })
+}
+`);
+    const result = compileProject("model.qnt", { cwd: directory });
+    const artifact = JSON.parse(fs.readFileSync(result.artifactPath, "utf8"));
+
+    // The runtime decodes `#map` entries as [key, value] arrays, as the
+    // initial and reached states already write them.
+    assert.deepEqual(artifact.fixtures.ledger, {
+      grid: { "#map": [[{ "#tup": [0, 1] }, "x"]] },
+      opening: { "#map": [["alice", 3], ["bob", 4]] },
+    });
+  });
+});
+
 test("every generated obligation is checked at runtime", () => {
   withTemporaryDirectory(directory => {
     const { artifact } = compileShop(directory);
