@@ -1,7 +1,8 @@
 # Releasing
 
-The compiler (npm), the Rust runtime (crates.io) and the Go runtime (a Go module)
-release together under one version. One tag publishes both, in an order that keeps the quick start working:
+The compiler and the TypeScript runtime (both in the npm package), the Rust runtime
+(crates.io) and the Go runtime (a Go module) release together under one version.
+One tag publishes npm and crates.io, in an order that keeps the quick start working:
 
 ```text
 vX.Y.Z tag ─> verify ─> crates.io ─> npm ─> run the published quick start ─> GitHub release
@@ -15,6 +16,15 @@ vX.Y.Z tag ─> verify ─> crates.io ─> npm ─> run the published quick star
    - `version` in `bindings/rust/Cargo.toml`, then `cargo check --manifest-path bindings/rust/Cargo.toml` to refresh `Cargo.lock`
    - `cargo check --manifest-path examples/rust/bank_account/Cargo.toml` to refresh its lockfile
 3. Run `npm test`. It fails if the two versions differ.
+
+The TypeScript runtime has no version of its own: it is built into the npm
+package (`quint-refinements/runtime`), so `package.json` versions it. `npm pack`
+and `npm publish` run `npm run build:runtime` first (the `prepack` script), which
+compiles `bindings/typescript/src` to `bindings/typescript/dist` with `.d.ts`
+files. `dist` is not committed, so a stale build cannot ship. The `verify` job
+installs the packed tarball into a scratch project, compiles a model with its
+CLI, type-checks the generated adapter against its runtime and runs it
+(`scripts/check-package.mjs`) before anything is published.
 4. Merge the PR, update local `main`, and tag that exact commit:
 
 ```console
@@ -30,7 +40,7 @@ git tag -a bindings/go/v0.2.0 -m "bindings/go v0.2.0"
 git push origin bindings/go/v0.2.0
 ```
 
-`.github/workflows/publish.yml` does the rest for crates.io and npm. Every job is safe to re-run: a
+`.github/workflows/publish.yml` does the rest for crates.io and npm (the TypeScript runtime goes out with npm). Every job is safe to re-run: a
 version that is already published with the same contents is skipped.
 
 ## One-time registry setup

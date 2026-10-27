@@ -4,7 +4,8 @@
 quint-refinements new <project-name> [--no-install]
 quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--artifact <path>] [--rust <path>]
-                          [--go <path>] [--go-package <name>] [--compact]
+                          [--go <path>] [--go-package <name>]
+                          [--typescript <path>] [--compact]
 quint-refinements --version
 quint-refinements --help
 ```
@@ -40,7 +41,7 @@ The name must use lowercase letters, numbers and hyphens, and the directory must
 npx quint-refinements compile
 ```
 
-Reads the model, runs each `@conformance` scenario through Quint, and writes two files (three with `--go` and `--rust` together):
+Reads the model, runs each `@conformance` scenario through Quint, and writes two files (one more for each of `--go` and `--typescript` you add to `--rust`):
 
 1. `quint-refinements.json`: the scenarios and their obligations.
 2. `src/generated_refinement.rs`: the `Implementation` trait, ownership records and runner.
@@ -56,6 +57,7 @@ Both are replaced on every run. `src/main.rs` is written only when it does not e
 | `--rust <path>` | `src/generated_refinement.rs` | Where the Rust module goes. With this flag `src/main.rs` is not scaffolded. |
 | `--go <path>` | off | Write a Go adapter instead of the Rust one. Pass `--rust` as well to write both. The artifact must sit in the adapter's directory, because Go embeds it from there. |
 | `--go-package <name>` | the adapter's directory name | The Go package clause. |
+| `--typescript <path>` | off | Write a TypeScript adapter instead of the Rust one. Pass `--rust` as well to write both. The adapter reads the artifact from a path relative to itself, so the artifact may sit anywhere. |
 | `--compact` | off | Write the artifact as one line. Each step inlines its obligations, so a large model's indented artifact is mostly whitespace. Pass it to `--check` too: the check compares bytes. |
 
 ### Output
@@ -82,10 +84,12 @@ quint-refinements.json drifted; run quint-refinements compile
 2. `rustfmt` on the `PATH`, because the generated Rust is formatted (`rustup component add rustfmt`).
 3. For `--go`, `gofmt` on the `PATH` (it ships with Go), because the generated Go is formatted. A Go-only project needs no Rust toolchain.
 
-The Go adapter is described in [Generated Go](go.md).
+4. For `--typescript`, nothing beyond Node.js: the TypeScript adapter is written as it is generated. A TypeScript-only project needs no Rust toolchain.
+
+The Go adapter is described in [Generated Go](go.md) and the TypeScript adapter in [Generated TypeScript](typescript.md).
 
 ## Versions
 
-The npm package, the Rust crate and the Go module release together under one version number. Keep `quint-refinements` in `package.json` and in `Cargo.toml` (or the Go module requirement) on the same version.
+The npm package (which includes the TypeScript runtime, `quint-refinements/runtime`), the Rust crate and the Go module release together under one version number. Keep `quint-refinements` in `package.json` and in `Cargo.toml` (or the Go module requirement) on the same version.
 
 See also: [keeping generated files honest in CI](../guides/ci.md) and [troubleshooting](../troubleshooting.md).

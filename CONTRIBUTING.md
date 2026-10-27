@@ -4,12 +4,13 @@
 2. Run `npm ci` to install the pinned Quint CLI.
 3. Run `npm test` and `cargo test --locked --manifest-path bindings/rust/Cargo.toml --all-targets`.
 4. For the Go runtime, install Go 1.22 or newer and run `go test ./...` in `bindings/go` and in each `examples/go/*` module, plus `gofmt -l .` and `go vet ./...`.
-5. Run `cargo fmt --manifest-path bindings/rust/Cargo.toml -- --check` and `cargo clippy --locked --manifest-path bindings/rust/Cargo.toml --all-targets -- -D warnings`.
+5. For the TypeScript runtime, `npm test` builds it and runs its type-check and tests. To run them alone, use `npm run test:typescript`; to iterate, run `npm run build:runtime` once and then `node --test bindings/typescript/test/<file>.test.ts` (Node 22.18 or newer runs the `.ts` files directly). The tests and examples import the built `dist`, as a user's code does.
+6. Run `cargo fmt --manifest-path bindings/rust/Cargo.toml -- --check` and `cargo clippy --locked --manifest-path bindings/rust/Cargo.toml --all-targets -- -D warnings`.
 
 ## Generated files
 
 `npm run generate` rewrites every file this repository derives from a Quint
-model: the example adapters (Rust and Go), their artifacts, and the conformance corpus.
+model: the example adapters (Rust, Go and TypeScript), their artifacts, and the conformance corpus.
 `npm test` fails when any of them has drifted.
 
 1. Never edit a file marked `@generated`. Change the model or

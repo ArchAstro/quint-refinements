@@ -141,6 +141,7 @@ export default defineConfig({
           { text: "Model annotations and rules", link: "/reference/model" },
           { text: "Generated Rust", link: "/reference/rust" },
           { text: "Generated Go", link: "/reference/go" },
+          { text: "Generated TypeScript", link: "/reference/typescript" },
         ],
       },
       {
@@ -162,6 +163,7 @@ export default defineConfig({
           { text: "raft", link: `${repository}/tree/main/examples/rust/raft` },
           { text: "raft_network", link: `${repository}/tree/main/examples/rust/raft_network` },
           { text: "bank_account (Go)", link: `${repository}/tree/main/examples/go/bank_account` },
+          { text: "bank_account (TypeScript)", link: `${repository}/tree/main/examples/typescript/bank_account` },
         ],
       },
     ],

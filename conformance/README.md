@@ -21,4 +21,7 @@ may be stricter, but cannot reinterpret these fields.
    `bindings/go/corpus/corpus_test.go` and `bank_withdraw` in
    `examples/go/bank_account/bank_test.go`, with the same comparison. Run
    them with `go test ./...` in `bindings/go` and in the example module.
+4. The TypeScript binding executes both cases in
+   `bindings/typescript/corpus/corpus.test.ts` against the TypeScript examples,
+   with the same comparison. Run it with `npm run test:typescript`.
 
