@@ -53,7 +53,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "test": "npm run test:compiler && npm run test:docs && npm run check:schema && npm run check:generated && npm run check:corpus",
+    "test": "npm run test:compiler && npm run test:docs && npm run check:schema && npm run check:generated && npm run check:corpus && npm run test:typescript",
     "test:compiler": "node --test packages/compiler/cli.test.mjs",
     "test:docs": "node --test docs/docs.test.mjs",
     "check:schema": "cmp packages/compiler/expression_vocabulary.json bindings/rust/expression_vocabulary.json && cmp packages/compiler/expression_vocabulary.json bindings/go/expression_vocabulary.json",
@@ -61,7 +61,8 @@
     "check:corpus": "node conformance/validate.mjs",
     "generate": "node scripts/generate.mjs",
     "build:runtime": "node scripts/build-runtime.mjs",
-    "test:typescript": "npm run build:runtime && tsc -p bindings/typescript/tsconfig.json && node --test \"bindings/typescript/test/*.test.ts\"",
+    "typecheck:typescript": "tsc -p bindings/typescript/tsconfig.json && tsc -p examples/typescript/tsconfig.json",
+    "test:typescript": "npm run build:runtime && npm run typecheck:typescript && node --test \"bindings/typescript/test/*.test.ts\" \"bindings/typescript/corpus/*.test.ts\" \"examples/typescript/*/*.test.ts\"",
     "prepack": "npm run build:runtime"
   },
   "dependencies": {
