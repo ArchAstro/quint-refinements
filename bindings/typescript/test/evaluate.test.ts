@@ -20,7 +20,7 @@ import {
   variant,
   type RuntimeValue,
 } from "../dist/index.js";
-import { evaluateExpression, structuralDifference } from "../dist/evaluate.js";
+import { evaluateExpression, mergeObservedState, structuralDifference } from "../dist/evaluate.js";
 import { assertion, boolExpr, call, emptyState, intExpr, lambda, nameExpr, noState, textExpr, type Expr } from "./helpers.ts";
 
 const evaluate = (expression: Expr): RuntimeValue => evaluateExpression(expression, noState);
@@ -217,6 +217,14 @@ test("structuralDifference names the divergence", () => {
     assert.equal(structuralDifference(expected, observed, "state.nodes"), want, name);
   }
   assert.equal(structuralDifference(nodes("Leader"), nodes("Leader"), "state"), undefined);
+});
+
+test("a map entry the implementation lacks is not filled in from the model", () => {
+  const node = (role: string): RuntimeValue => record({ role: text(role) });
+  const model = record({ nodes: map([[text("n1"), node("Leader")], [text("n2"), node("Leader")]]) });
+  const observed = record({ nodes: map([[text("n1"), node("Leader")]]) });
+  const merged = mergeObservedState(model, observed, new Set(["nodes"]));
+  assert.equal(structuralDifference(model, merged, "state"), 'state.nodes["n2"] missing from observed state');
 });
 
 test("false assertions name the kind, context and expression", () => {

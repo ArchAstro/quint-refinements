@@ -7,6 +7,12 @@ and the Rust, Go and TypeScript runtimes share one version.
 
 ### Fixed
 
+- A map in the observed state is taken as the implementation reports it: an
+  entry the model's next state has and the snapshot lacks is now reported as
+  `missing from observed state`. Every runtime filled such an entry in from the
+  model before comparing, so an implementation that dropped one (a deleted
+  row, a forgotten key) refined. Records still merge field by field.
+
 - `matchVariant` takes Quint's `_` default branch (`match v { | A => … | _ => … }`)
   in both runtimes; a value no named branch matched failed with "matchVariant
   has no matching branch".

@@ -485,7 +485,8 @@ function containsAssignment(expression: Json | undefined): boolean {
   return false;
 }
 
-function mergeObservedState(model: RuntimeValue, observed: RuntimeValue, fields: ReadonlySet<string>): RuntimeValue {
+/** Exported for tests only: not part of the package's entry point. */
+export function mergeObservedState(model: RuntimeValue, observed: RuntimeValue, fields: ReadonlySet<string>): RuntimeValue {
   if (model.kind !== "record") {
     return fail("generated Quint state is not a record");
   }
@@ -530,22 +531,28 @@ function requireChangedObservations(
 }
 
 /** Overlays `update` onto `accumulated` without modifying either. */
+/**
+ * Overlays observed state on the model's. A record's fields merge one by one (evidence may
+ * leave out fields the model owns); a map's entries are the observed ones: an entry the
+ * implementation lacks must not be filled in from the model, or a dropped entry would go
+ * unnoticed.
+ */
 function mergeStateValue(accumulated: RuntimeValue, update: RuntimeValue): RuntimeValue {
   switch (accumulated.kind) {
     case "map":
       if (update.kind === "map") {
-        let result = accumulated;
+        let result = map();
         for (const [key, value] of update.entries) {
-          const existing = mapGet(result, key);
+          const existing = mapGet(accumulated, key);
           result = mapWith(result, key, existing === undefined ? value : mergeStateValue(existing, value));
         }
         return result;
       }
       if (update.kind === "record") {
-        let result = accumulated;
+        let result = map();
         for (const [name, value] of update.fields) {
           const key = text(name);
-          const existing = mapGet(result, key);
+          const existing = mapGet(accumulated, key);
           result = mapWith(result, key, existing === undefined ? value : mergeStateValue(existing, value));
         }
         return result;

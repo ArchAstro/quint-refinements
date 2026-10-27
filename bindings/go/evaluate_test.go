@@ -157,6 +157,19 @@ func TestStructuralDifferenceNamesTheDivergence(t *testing.T) {
 	}
 }
 
+func TestAMapEntryTheImplementationLacksIsNotFilledInFromTheModel(t *testing.T) {
+	fewer := NewMap(MapEntry{Text("n1"), Record{"role": Text("Leader")}})
+	model, observed := Record{"nodes": nodes("Leader")}, Record{"nodes": fewer}
+	merged, err := mergeObservedState(model, observed, map[string]bool{"nodes": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, differs := structuralDifference(model, merged, "state")
+	if want := `state.nodes["n2"] missing from observed state`; !differs || got != want {
+		t.Errorf("got %q (%t), want %q", got, differs, want)
+	}
+}
+
 func TestFalseAssertionsNameTheKindContextAndExpression(t *testing.T) {
 	evidence := StateEvidence{State: Record{}}
 	expression := call("eq", intExpr(1), intExpr(2))
