@@ -1514,7 +1514,8 @@ func evaluateMatchVariant(arguments []any, ev eval, env environment) (RuntimeVal
 		if !ok {
 			return nil, errorf("matchVariant tag is not text")
 		}
-		if string(text) != tag {
+		// `_` is Quint's default branch: it matches whatever no earlier branch did.
+		if string(text) != tag && string(text) != "_" {
 			continue
 		}
 		lambda := branches[i+1]

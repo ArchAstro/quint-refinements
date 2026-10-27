@@ -72,6 +72,8 @@ func TestOperators(t *testing.T) {
 		{"Absent name defaults", nameExpr("Absent"), Absent{}},
 		{"disabled name", nameExpr("disabled"), Bool(false)},
 		{"matchVariant on unit", call("matchVariant", textExpr("B"), textExpr("A"), lambda(intExpr(1), "_"), textExpr("B"), lambda(intExpr(2), "_")), Int(2)},
+		{"matchVariant default branch", call("matchVariant", call("C", intExpr(3)), textExpr("A"), lambda(intExpr(1), "_"), textExpr("_"), lambda(intExpr(2), "_")), Int(2)},
+		{"matchVariant takes the first matching branch", call("matchVariant", textExpr("A"), textExpr("A"), lambda(intExpr(1), "_"), textExpr("_"), lambda(intExpr(2), "_")), Int(1)},
 		{"matchVariant on Present", call("matchVariant", call("Present", intExpr(5)), textExpr("Absent"), lambda(intExpr(0), "_"), textExpr("Present"), lambda(nameExpr("v"), "v")), Int(5)},
 		{"replicaPoolKey", call("field", call("replicaPoolKey", textExpr("r"), call("Rec")), textExpr("replica_id")), Text("r")},
 	}

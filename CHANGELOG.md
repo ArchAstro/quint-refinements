@@ -5,6 +5,12 @@ and the Rust runtime share one version.
 
 ## Unreleased
 
+### Fixed
+
+- `matchVariant` takes Quint's `_` default branch (`match v { | A => … | _ => … }`)
+  in both runtimes; a value no named branch matched failed with "matchVariant
+  has no matching branch".
+
 ### Added
 
 - A Go runtime, `github.com/ArchAstro/quint-refinements/bindings/go`, that
