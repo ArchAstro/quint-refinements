@@ -118,6 +118,27 @@ test("compile derives the whole integration from the Quint AST", () => {
   });
 });
 
+test("--compact writes the same artifact on one line, and --check compares that", () => {
+  withTemporaryDirectory(directory => {
+    writeModel(directory, bankModel);
+    const artifactPath = path.join(directory, "quint-refinements.json");
+    compileProject("model.qnt", { cwd: directory });
+    const indented = fs.readFileSync(artifactPath, "utf8");
+
+    compileProject("model.qnt", { cwd: directory, compact: true });
+    const compact = fs.readFileSync(artifactPath, "utf8");
+
+    assert.deepEqual(JSON.parse(compact), JSON.parse(indented));
+    assert.equal(compact.trimEnd().includes("\n"), false);
+    assert.ok(compact.length < indented.length);
+    compileProject("model.qnt", { cwd: directory, compact: true, check: true });
+    assert.throws(
+      () => compileProject("model.qnt", { cwd: directory, check: true }),
+      /quint-refinements\.json drifted/,
+    );
+  });
+});
+
 test("compile never overwrites the user's implementation and reports drift", () => {
   withTemporaryDirectory(directory => {
     writeModel(directory, bankModel);

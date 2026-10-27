@@ -179,7 +179,7 @@ It fails when `quint-refinements.json` or `src/generated_refinement.rs` no longe
 quint-refinements new <project-name> [--no-install]
 quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--artifact <path>] [--rust <path>]
-                          [--go <path>] [--go-package <name>]
+                          [--go <path>] [--go-package <name>] [--compact]
 ```
 
 `compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`. `--go` writes a Go adapter instead of the Rust one (add `--rust` to write both).
