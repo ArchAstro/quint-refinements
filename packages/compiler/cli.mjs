@@ -183,7 +183,7 @@ function parseQuint(sourcePath) {
   }
 }
 
-export function inferProject(parsed, sourceName, requestedModule, targets = { rust: true, go: false }) {
+export function inferProject(parsed, sourceName, requestedModule, targets = { rust: true, go: false, typescript: false }) {
   const candidates = (parsed.modules ?? []).filter(module =>
     module.declarations.some(declaration =>
       declaration.kind === "def"
@@ -351,6 +351,9 @@ export function inferProject(parsed, sourceName, requestedModule, targets = { ru
   }
   if (targets.go) {
     checkGoNames(primitives);
+  }
+  if (targets.typescript) {
+    checkTypescriptNames(primitives);
   }
   const observationOperators = [...vocabulary.operators]
     .filter(operator => !["assert", "assign"].includes(operator))
@@ -844,6 +847,287 @@ func RefineAll[I Implementation](
 `;
 }
 
+const typescriptRuntimeModule = "quint-refinements/runtime";
+
+// Names the generated TypeScript `Implementation` interface already uses, plus
+// names that change what an object means: a `then` method makes an
+// implementation look like a promise, `constructor` and `__proto__` are
+// special on every object.
+const typescriptReservedMethods = new Set([
+  "snapshot", "then", "constructor", "__proto__", "toString", "toLocaleString",
+  "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable",
+]);
+
+// `commit_prepared` and `commitPrepared` both become `commitPrepared`.
+export function typescriptMethodName(name) {
+  const [first = "", ...rest] = rustIdentifier(name).split("_").filter(Boolean);
+  const camel = first + rest.map(part => part[0].toUpperCase() + part.slice(1)).join("");
+  return /^[a-z]/.test(camel) ? camel : `action${camel[0]?.toUpperCase() ?? ""}${camel.slice(1)}`;
+}
+
+function checkTypescriptNames(primitives) {
+  const methods = new Map();
+  for (const primitive of primitives) {
+    const method = typescriptMethodName(primitive.name);
+    if (typescriptReservedMethods.has(method)) {
+      fail(`${primitive.name} maps to reserved TypeScript method ${method}; rename it or wrap it in a @primitive`);
+    }
+    if (methods.has(method)) {
+      fail(`${methods.get(method)} and ${primitive.name} both map to TypeScript method ${method}`);
+    }
+    methods.set(method, primitive.name);
+  }
+}
+
+function typescriptStrings(values) {
+  return `[${values.map(rustString).join(", ")}]`;
+}
+
+export function generateTypeScriptModule(project) {
+  checkTypescriptNames(project.primitives);
+  const hasCompound = project.primitives.some(primitive => primitive.compound);
+  const hasSingle = project.primitives.some(primitive => !primitive.compound);
+  const observations = typescriptStrings(project.paths);
+  const retrieveNames = typescriptStrings(project.stateVariables.map(name => `name:${name}`));
+  const records = project.primitives.map(primitive => `    {
+      primitive: ${rustString(primitiveId(project, primitive))},
+      refines: ${typescriptStrings(primitive.actions)},
+      observations: ${observations},
+      retrieve: ${retrieveNames},
+    },`).join("\n");
+  const retrieve = project.retrieve.map(value => `  ${rustString(value)},`).join("\n");
+  const interfaceMethods = project.primitives.map(primitive => {
+    const method = typescriptMethodName(primitive.name);
+    return primitive.compound
+      ? `  /**
+   * Executes Quint actions ${quoted(primitive.actions)} as one command.
+   *
+   * Return one snapshot taken after each action, in that order.
+   */
+  ${method}(actions: readonly ResolvedAction[]): readonly Evidence[];`
+      : `  /** Executes Quint action \`${primitive.name}\` with its generated arguments. */
+  ${method}(args: readonly RuntimeValue[]): void;`;
+  }).join("\n\n");
+  // Dispatches one primitive. The synchronous driver rejects a promise from
+  // any method, because an unawaited promise would let the snapshot run first.
+  const cases = awaited => project.primitives.map(primitive => {
+    const method = typescriptMethodName(primitive.name);
+    const call = args => `implementation.${method}(${args})`;
+    const settle = (name, expression) => awaited ? `await ${expression}` : `ensureSynchronous(${rustString(name)}, ${expression})`;
+    return primitive.compound
+      ? `      case ${rustString(primitiveId(project, primitive))}:
+        expectActions(${rustString(primitive.name)}, actions, ${typescriptStrings(primitive.actions)});
+        return ${settle(method, call("actions"))};`
+      : `      case ${rustString(primitiveId(project, primitive))}:
+        ${settle(method, call(`expectOne(${rustString(primitive.name)}, actions).arguments`))};
+        return [${settle("snapshot", "implementation.snapshot()")}];`;
+  }).join("\n");
+  const helpers = [
+    hasCompound && `function expectActions(primitive: string, actions: readonly ResolvedAction[], expected: readonly string[]): void {
+  if (actions.length !== expected.length || actions.some((action, index) => action.name !== expected[index])) {
+    throw new RefinementError(\`\${primitive} refines \${formatStrings(expected)}; got \${formatActions(actions)}\`);
+  }
+}`,
+    hasSingle && `function expectOne(action: string, actions: readonly ResolvedAction[]): ResolvedAction {
+  const [only] = actions;
+  if (only === undefined || actions.length !== 1) {
+    throw new RefinementError(\`\${action} expects one Quint action; got \${formatActions(actions)}\`);
+  }
+  if (only.name !== action) {
+    throw new RefinementError(\`\${action} primitive cannot refine \${only.name}\`);
+  }
+  return only;
+}`,
+  ].filter(Boolean).join("\n\n");
+  const imports = [
+    "FixtureTable",
+    "RefinementError",
+    "collectOwnershipRecords",
+    "ensureSynchronous",
+    "formatActions",
+    hasCompound && "formatStrings",
+    "fromItfJson",
+    "parseConformanceArtifact",
+    "refineScenario",
+    "refineScenarioAsync",
+    "scenarioId",
+    "type ArtifactScenario",
+    "type AsyncPrimitiveDriver",
+    "type ConformanceArtifact",
+    "type Evidence",
+    "type MaybeAsync",
+    "type OwnershipTable",
+    "type PrimitiveDriver",
+    "type ResolvedAction",
+    "type RuntimeValue",
+  ].filter(Boolean).map(name => `  ${name},`).join("\n");
+
+  return `// @generated by quint-refinements from ${project.source}. Do not edit.
+// Regenerate with \`quint-refinements compile\`.
+
+import { readFileSync } from "node:fs";
+
+import {
+${imports}
+} from ${rustString(typescriptRuntimeModule)};
+
+/** Which implementation command owns each Quint action. */
+export const ownership: OwnershipTable = {
+  owner: ${rustString(`${project.module}-generated-refinement`)},
+  descriptors: [
+${records}
+  ],
+};
+
+/** Everything the generated obligations may read from a snapshot. */
+export const retrieve: readonly string[] = [
+${retrieve}
+];
+
+/**
+ * The domain implementation connected to the generated Quint scenarios.
+ * \`snapshot()\` must return a value that no later action changes.
+ *
+ * Use \`MaybeAsync<Implementation>\` (and \`refineAll\`) when a method needs to
+ * return a promise.
+ */
+export interface Implementation {
+  /** Returns the current observable implementation state. */
+  snapshot(): Evidence;
+
+${interfaceMethods}
+}
+
+/** Options for {@link refineAll} and {@link refineAllSync}. */
+export interface RefineOptions {
+  /**
+   * Supplies the values for the constants the model names, such as
+   * \`pure val limit = 3\`.
+   *
+   * By default each constant has the value the model gives it. Use this to bind
+   * a constant to a production value instead; the runner then fails if that
+   * value and the model disagree.
+   */
+  readonly fixtures?: (artifact: ConformanceArtifact) => FixtureTable;
+  /**
+   * The parsed artifact to run. By default it is read from
+   * ${project.artifactInclude} (relative to this file); pass it when a bundler or a
+   * build step moves this file away from the artifact.
+   */
+  readonly artifact?: ConformanceArtifact;
+}
+
+/** The result of refining one generated Quint run. */
+export interface ScenarioResult<I> {
+  /** The fully qualified generated scenario name. */
+  readonly scenario: string;
+  /** The number of evaluated guard and next-state obligations. */
+  readonly evaluatedObligations: number;
+  /** The implementation state after the scenario completed. */
+  readonly implementation: I;
+}
+
+${helpers}
+
+/** Dispatches each owned Quint action sequence to its implementation method. */
+export function driver(implementation: Implementation): PrimitiveDriver {
+  return {
+    runPrimitive(primitive, actions) {
+      switch (primitive) {
+${cases(false).replace(/^/gm, "  ")}
+        default:
+          throw new RefinementError(\`unknown generated primitive \${primitive}\`);
+      }
+    },
+  };
+}
+
+/** Like {@link driver}, for an implementation whose methods return promises. */
+export function asyncDriver(implementation: MaybeAsync<Implementation>): AsyncPrimitiveDriver {
+  return {
+    async runPrimitive(primitive, actions) {
+      switch (primitive) {
+${cases(true).replace(/^/gm, "  ")}
+        default:
+          throw new RefinementError(\`unknown generated primitive \${primitive}\`);
+      }
+    },
+  };
+}
+
+/** Parses the generated scenarios this module was compiled with. */
+export function artifact(): ConformanceArtifact {
+  return parseConformanceArtifact(readFileSync(new URL(${rustString(project.artifactInclude)}, import.meta.url), "utf8"));
+}
+
+function prepare(options: RefineOptions): { scenarios: readonly ArtifactScenario[]; fixtures: FixtureTable } {
+  const parsed = options.artifact ?? artifact();
+  const fixtures = options.fixtures?.(parsed) ?? FixtureTable.fromArtifact(${rustString(project.module)}, parsed);
+  fixtures.validate(parsed);
+  return { scenarios: parsed.scenarios, fixtures };
+}
+
+const ownershipRecords = collectOwnershipRecords(ownership);
+
+function initialStateOf(scenario: ArtifactScenario): RuntimeValue {
+  if (scenario.initialState === undefined) {
+    throw new RefinementError(\`\${scenarioId(scenario)} has no generated initial state\`);
+  }
+  return fromItfJson(scenario.initialState);
+}
+
+/**
+ * Runs every generated conformance scenario against a fresh implementation
+ * that \`newImplementation\` builds from the scenario's initial state. It
+ * throws a \`RefinementError\` naming the first divergence.
+ */
+export function refineAllSync<I extends Implementation>(
+  newImplementation: (initialState: RuntimeValue) => I,
+  options: RefineOptions = {},
+): ScenarioResult<I>[] {
+  const { scenarios, fixtures } = prepare(options);
+  return scenarios.map(scenario => {
+    const implementation = newImplementation(initialStateOf(scenario));
+    const evaluatedObligations = refineScenario(
+      scenario,
+      ensureSynchronous("snapshot", implementation.snapshot()),
+      ownershipRecords,
+      retrieve,
+      fixtures,
+      driver(implementation),
+    );
+    return { scenario: scenarioId(scenario), evaluatedObligations, implementation };
+  });
+}
+
+/**
+ * Like {@link refineAllSync}, for implementations whose methods may return
+ * promises. A synchronous implementation works too. Scenarios run one after
+ * another, and so do the primitives within each.
+ */
+export async function refineAll<I extends MaybeAsync<Implementation>>(
+  newImplementation: (initialState: RuntimeValue) => I | Promise<I>,
+  options: RefineOptions = {},
+): Promise<ScenarioResult<I>[]> {
+  const { scenarios, fixtures } = prepare(options);
+  const results: ScenarioResult<I>[] = [];
+  for (const scenario of scenarios) {
+    const implementation = await newImplementation(initialStateOf(scenario));
+    const evaluatedObligations = await refineScenarioAsync(
+      scenario,
+      await implementation.snapshot(),
+      ownershipRecords,
+      retrieve,
+      fixtures,
+      asyncDriver(implementation),
+    );
+    results.push({ scenario: scenarioId(scenario), evaluatedObligations, implementation });
+  }
+  return results;
+}
+`;
+}
+
 function generateMain(project) {
   const initializeValues = 'BTreeMap::from([("state".to_owned(), initial_state.clone())])';
   const methods = project.primitives.map(primitive => primitive.compound
@@ -1097,14 +1381,15 @@ export function compileProject(sourceArgument, options = {}) {
   const artifactPath = options.artifact
     ? path.resolve(cwd, options.artifact)
     : path.join(projectDirectory, "quint-refinements.json");
-  // `--go` alone selects a Go-only project; `--rust` adds the Rust adapter.
-  const emitRust = options.rust !== undefined || options.go === undefined;
+  // `--go` or `--typescript` alone selects a project without Rust; `--rust` adds the Rust adapter.
+  const emitRust = options.rust !== undefined || (options.go === undefined && options.typescript === undefined);
   const generatedRustPath = options.rust
     ? path.resolve(cwd, options.rust)
     : path.join(projectDirectory, "src", "generated_refinement.rs");
   const generatedGoPath = options.go ? path.resolve(cwd, options.go) : undefined;
+  const generatedTypescriptPath = options.typescript ? path.resolve(cwd, options.typescript) : undefined;
   const parsed = parseQuint(sourcePath);
-  const project = inferProject(parsed, sourceName, options.module, { rust: emitRust, go: generatedGoPath !== undefined });
+  const project = inferProject(parsed, sourceName, options.module, { rust: emitRust, go: generatedGoPath !== undefined, typescript: generatedTypescriptPath !== undefined });
   const artifact = generateConformanceTraces({
     root: packageRoot,
     specDir: projectDirectory,
@@ -1139,6 +1424,10 @@ export function compileProject(sourceArgument, options = {}) {
     const packageName = goPackageName(generatedGoPath, options.goPackage);
     writeOrCheck(generatedGoPath, formatGo(generateGoModule(project, packageName)), options.check);
   }
+  if (generatedTypescriptPath) {
+    project.artifactInclude = relativeArtifact(generatedTypescriptPath);
+    writeOrCheck(generatedTypescriptPath, generateTypeScriptModule(project), options.check);
+  }
 
   // The implementation file belongs to the user: scaffold it once, in the
   // standard project layout, and never overwrite it.
@@ -1151,6 +1440,7 @@ export function compileProject(sourceArgument, options = {}) {
     artifactPath,
     generatedRustPath: emitRust ? generatedRustPath : undefined,
     generatedGoPath,
+    generatedTypescriptPath,
     mainPath,
   };
 }
@@ -1347,7 +1637,7 @@ export function createProject(name, options = {}) {
 const defaultSource = "model.qnt";
 
 function usage() {
-  console.log(`quint-refinements: check a Rust or Go implementation against a Quint model
+  console.log(`quint-refinements: check a Rust, Go or TypeScript implementation against a Quint model
 
 Usage:
   quint-refinements new <project-name> [--no-install]
@@ -1355,7 +1645,7 @@ Usage:
       and the generated adapter between them.
 
   quint-refinements compile [spec.qnt] [options]
-      Generate the scenario artifact and the Rust or Go adapter from a Quint model.
+      Generate the scenario artifact and the Rust, Go or TypeScript adapter from a Quint model.
       The model defaults to ${defaultSource}.
 
       --check            Fail if the generated files differ from the model (CI)
@@ -1366,6 +1656,10 @@ Usage:
                          written. The artifact must sit inside the adapter's
                          directory, which is where Go embeds it from.
       --go-package <n>   Go package name (default: the adapter's directory name)
+      --typescript <path>
+                         TypeScript adapter. Without --rust, only the TypeScript
+                         adapter is written. It imports quint-refinements/runtime
+                         and reads the artifact from beside itself.
       --compact          Write the artifact without indentation
 
 In the model:
@@ -1425,6 +1719,7 @@ Next:
     const artifact = optionValue(args, "--artifact");
     const rust = optionValue(args, "--rust");
     const go = optionValue(args, "--go");
+    const typescript = optionValue(args, "--typescript");
     const goPackage = optionValue(args, "--go-package");
     const check = args.includes("--check");
     const compact = args.includes("--compact");
@@ -1432,8 +1727,8 @@ Next:
     if (positional.length > 1 || positional.some(argument => argument.startsWith("--"))) {
       fail(`unexpected compile arguments: ${positional.join(" ")}`);
     }
-    const result = compileProject(positional[0] ?? defaultSource, { module, check, compact, artifact, rust, go, goPackage });
-    const written = [result.artifactPath, result.generatedRustPath, result.generatedGoPath]
+    const result = compileProject(positional[0] ?? defaultSource, { module, check, compact, artifact, rust, go, goPackage, typescript });
+    const written = [result.artifactPath, result.generatedRustPath, result.generatedGoPath, result.generatedTypescriptPath]
       .filter(Boolean)
       .map(file => path.relative(process.cwd(), file));
     console.log(
