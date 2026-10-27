@@ -793,9 +793,14 @@ fn require_changed_observations(
     Ok(())
 }
 
+/// Overlays observed state on the model's next state. A record's fields merge one by one
+/// (evidence may leave out fields the model owns); a map's entries are the observed ones:
+/// an entry the implementation lacks must not be filled in from the model, or a dropped
+/// entry would go unnoticed.
 fn merge_state_value(accumulated: &mut RuntimeValue, update: &RuntimeValue) {
     match (accumulated, update) {
         (RuntimeValue::Map(accumulated), RuntimeValue::Map(update)) => {
+            accumulated.retain(|key, _| update.contains_key(key));
             for (key, value) in update {
                 if let Some(accumulated_value) = accumulated.get_mut(key) {
                     merge_state_value(accumulated_value, value);
@@ -805,6 +810,8 @@ fn merge_state_value(accumulated: &mut RuntimeValue, update: &RuntimeValue) {
             }
         }
         (RuntimeValue::Map(accumulated), RuntimeValue::Record(update)) => {
+            accumulated
+                .retain(|key, _| matches!(key, RuntimeValue::Text(k) if update.contains_key(k)));
             for (key, value) in update {
                 let key = RuntimeValue::Text(key.clone());
                 if let Some(accumulated_value) = accumulated.get_mut(&key) {
@@ -1663,10 +1670,11 @@ fn map_from_values(values: &[RuntimeValue]) -> Result<RuntimeValue, String> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        Eval, NormalizedRuntimeEvidence, RuntimeValue, evaluate_expression, structural_difference,
+        Eval, NormalizedRuntimeEvidence, RuntimeValue, evaluate_expression, merge_observed_state,
+        structural_difference,
     };
 
     struct NoState;
@@ -1784,5 +1792,29 @@ mod tests {
                 .as_deref(),
             Some(r#"state.nodes["n2"] missing from observed state"#),
         );
+    }
+
+    #[test]
+    fn a_map_entry_the_implementation_lacks_is_not_filled_in_from_the_model() -> Result<(), String>
+    {
+        let RuntimeValue::Map(mut fewer) = nodes("Leader") else {
+            unreachable!()
+        };
+        fewer.remove(&RuntimeValue::Text("n2".to_owned()));
+        let state = |nodes: RuntimeValue| {
+            RuntimeValue::Record(BTreeMap::from([("nodes".to_owned(), nodes)]))
+        };
+        let observed = state(RuntimeValue::Map(fewer));
+        let merged = merge_observed_state(
+            state(nodes("Leader")),
+            &observed,
+            &BTreeSet::from(["nodes".to_owned()]),
+        )?;
+        assert_eq!(merged, observed);
+        assert_eq!(
+            structural_difference(&state(nodes("Leader")), &merged, "state").as_deref(),
+            Some(r#"state.nodes["n2"] missing from observed state"#),
+        );
+        Ok(())
     }
 }

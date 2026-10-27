@@ -603,15 +603,18 @@ func requireChangedObservations(before, modelNext, observed RuntimeValue, fields
 	return nil
 }
 
-// mergeStateValue overlays update onto accumulated without modifying either.
+// mergeStateValue overlays update onto accumulated without modifying either. A record's
+// fields merge one by one (evidence may leave out fields the model owns); a map's entries
+// are the observed ones: an entry the implementation lacks must not be filled in from the
+// model, or a dropped entry would go unnoticed.
 func mergeStateValue(accumulated, update RuntimeValue) RuntimeValue {
 	switch acc := accumulated.(type) {
 	case Map:
 		switch upd := update.(type) {
 		case Map:
-			result := acc
+			result := NewMap()
 			for _, entry := range upd.entries {
-				if existing, ok := result.Get(entry.Key); ok {
+				if existing, ok := acc.Get(entry.Key); ok {
 					result = result.with(entry.Key, mergeStateValue(existing, entry.Value))
 				} else {
 					result = result.with(entry.Key, entry.Value)
@@ -619,10 +622,10 @@ func mergeStateValue(accumulated, update RuntimeValue) RuntimeValue {
 			}
 			return result
 		case Record:
-			result := acc
+			result := NewMap()
 			for _, key := range upd.sortedKeys() {
 				mapKey := Text(key)
-				if existing, ok := result.Get(mapKey); ok {
+				if existing, ok := acc.Get(mapKey); ok {
 					result = result.with(mapKey, mergeStateValue(existing, upd[key]))
 				} else {
 					result = result.with(mapKey, upd[key])
