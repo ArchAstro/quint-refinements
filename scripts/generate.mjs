@@ -39,6 +39,19 @@ const models = [
     goPackage: "main",
   },
   {
+    source: "examples/typescript/bank_account/bank.qnt",
+    typescript: "examples/typescript/bank_account/generated_refinement.ts",
+  },
+  {
+    source: "examples/typescript/two_phase_commit/model.qnt",
+    typescript: "examples/typescript/two_phase_commit/generated_refinement.ts",
+  },
+  {
+    source: "examples/rust/raft/model.qnt",
+    artifact: "examples/typescript/raft/quint-refinements.json",
+    typescript: "examples/typescript/raft/generated_refinement.ts",
+  },
+  {
     source: "examples/rust/shop_orders/model.qnt",
   },
   {
@@ -64,8 +77,8 @@ const models = [
   },
 ];
 
-for (const { source, artifact, rust, go, goPackage, corpusCase } of models) {
-  const { artifactPath } = compileProject(source, { cwd: root, artifact, rust, go, goPackage, check });
+for (const { source, artifact, rust, go, goPackage, typescript, corpusCase } of models) {
+  const { artifactPath } = compileProject(source, { cwd: root, artifact, rust, go, goPackage, typescript, check });
   if (corpusCase) {
     const generated = fs.readFileSync(artifactPath, "utf8");
     const corpusPath = path.join(root, "conformance", "cases", corpusCase, "artifact.json");
