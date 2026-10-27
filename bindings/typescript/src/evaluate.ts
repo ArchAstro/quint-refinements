@@ -2,7 +2,7 @@ import type { ActionStep, ArtifactAssertion, ArtifactScenario, ArtifactStep } fr
 import { actionSteps, scenarioId } from "./artifact.js";
 import { fail, RefinementError } from "./error.js";
 import type { Evidence } from "./evidence.js";
-import { field as jsonField, type Json, jsonString, kindOf } from "./json.js";
+import { compareStrings, field as jsonField, type Json, jsonString, kindOf } from "./json.js";
 import {
   absent,
   bool,
@@ -76,7 +76,7 @@ export function evaluateActionArguments(step: ArtifactStep, evidence: Evidence):
 }
 
 function wrap(prefix: string, error: unknown): unknown {
-  return error instanceof RefinementError ? new RefinementError(`${prefix}${error.message}`) : error;
+  return new RefinementError(`${prefix}${error instanceof Error ? error.message : String(error)}`);
 }
 
 /**
@@ -417,9 +417,12 @@ function projectedCall(snapshot: Evidence, state: RuntimeValue, operator: string
     result.push(["outcome", args[1]!]);
     return record(result);
   }
-  const collection = (
-    { attemptValue: "attempts", connectionValue: "connections", deliveryValue: "deliveries", tokenValue: "enrollment_tokens" } as Record<string, string | undefined>
-  )[operator];
+  const collection = new Map([
+    ["attemptValue", "attempts"],
+    ["connectionValue", "connections"],
+    ["deliveryValue", "deliveries"],
+    ["tokenValue", "enrollment_tokens"],
+  ]).get(operator);
   if (collection !== undefined && args.length === 1) {
     return projectedMapValue(state, collection, argument!);
   }
@@ -490,7 +493,7 @@ function mergeObservedState(model: RuntimeValue, observed: RuntimeValue, fields:
     return fail("Rust action state evidence is not a record");
   }
   const merged = new Map(model.fields);
-  for (const name of [...fields].sort()) {
+  for (const name of [...fields].sort(compareStrings)) {
     const value = observed.fields.get(name);
     if (value === undefined) {
       continue;
@@ -516,7 +519,7 @@ function requireChangedObservations(
   if (observed.kind !== "record") {
     return fail("Rust action state evidence is not a record");
   }
-  for (const name of [...fields].sort()) {
+  for (const name of [...fields].sort(compareStrings)) {
     const left = before.fields.get(name);
     const right = modelNext.fields.get(name);
     const changed = (left === undefined) !== (right === undefined) || (left !== undefined && right !== undefined && !equal(left, right));
@@ -707,8 +710,11 @@ function evaluate(expression: Json | undefined, ev: Eval, env: Environment): Run
       if (name === "Absent") {
         try {
           return ev.current.resolveName(name) ?? absent;
-        } catch {
-          return absent;
+        } catch (error) {
+          if (error instanceof RefinementError) {
+            return absent;
+          }
+          throw error;
         }
       }
       return resolveName(ev.current, name);
@@ -772,7 +778,7 @@ function evaluateCall(expression: Json | undefined, ev: Eval, env: Environment):
   if (custom !== undefined) {
     return custom;
   }
-  if (/^\p{Lu}/u.test(operator)) {
+  if (/^\p{Uppercase}/u.test(operator)) {
     if (values.length !== 1) {
       return fail(`variant constructor ${operator} requires one value, received ${values.length}`);
     }

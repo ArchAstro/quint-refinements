@@ -315,3 +315,20 @@ test("assign reads its right-hand side from the state before the action", () => 
   const assign = assertion(call("assign", nameExpr("state"), call("Rec", textExpr("balance"), call("isub", balance, intExpr(3)))));
   assert.equal(evaluateAllStepObligations("bank.run", "withdraw", [], [assign], before, after, []), 1);
 });
+
+test("an operator named like an Object.prototype member reaches the evidence", () => {
+  const evidence = { resolveName: () => undefined, resolveCall: (operator: string) => (operator === "toString" ? int(42) : undefined) };
+  assert.deepEqual(evaluateExpression(call("toString", intExpr(1)), evidence), int(42));
+});
+
+test("the constructor fallback uses Unicode Uppercase, as Rust does", () => {
+  assert.deepEqual(evaluate(call("Ⓐ", intExpr(1))), variant("Ⓐ", int(1)));
+});
+
+test("an error thrown by evidence keeps its scenario context", () => {
+  const evidence = { resolveName: (name: string) => { if (name === "boom") throw new Error("boom"); return undefined; } };
+  assert.throws(
+    () => evaluateAllStepObligations("s", "a", [], [assertion(nameExpr("boom"))], evidence, evidence, []),
+    { message: "s:a next: boom" },
+  );
+});

@@ -89,3 +89,22 @@ test("expressionNames honors binders", () => {
   const letExpression = { kind: "let", name: "y", value: nameExpr("y"), body: nameExpr("y") };
   assert.deepEqual(expressionNames(letExpression), ["y"], "the let value sees the outer y only");
 });
+
+test("fixture names that exist on every object are ordinary names", () => {
+  const artifact = artifactWithFixtures('{"a": 1}');
+  assert.throws(() => new FixtureTable("toString").validate(artifact), {
+    message: "fixture namespace toString is missing from the artifact",
+  });
+  for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+    assert.throws(() => new FixtureTable("m").insert(name, intFixture(1)).validateEntries(artifact), {
+      message: `artifact namespace m is missing fixture ${name}`,
+    });
+  }
+});
+
+test("a float fixture is not an integer fixture", () => {
+  const artifact = artifactWithFixtures('{"a": 1.0}');
+  assert.throws(() => new FixtureTable("m").insert("a", intFixture(1)).validate(artifact), {
+    message: "fixture a JSON diverged: artifact 1.0 rust 1",
+  });
+});

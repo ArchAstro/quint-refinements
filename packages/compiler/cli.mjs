@@ -1057,7 +1057,7 @@ ${cases(true).replace(/^/gm, "  ")}
 
 /** Parses the generated scenarios this module was compiled with. */
 export function artifact(): ConformanceArtifact {
-  return parseConformanceArtifact(readFileSync(new URL(${rustString(project.artifactInclude)}, import.meta.url), "utf8"));
+  return parseConformanceArtifact(readFileSync(new URL(${rustString(project.artifactInclude.split("/").map(encodeURIComponent).join("/"))}, import.meta.url), "utf8"));
 }
 
 function prepare(options: RefineOptions): { scenarios: readonly ArtifactScenario[]; fixtures: FixtureTable } {
