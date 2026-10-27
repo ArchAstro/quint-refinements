@@ -1611,7 +1611,8 @@ fn evaluate_match_variant<E: NormalizedRuntimeEvidence>(
         else {
             return Err("matchVariant tag is not text".to_owned());
         };
-        if branch_tag != tag {
+        // `_` is Quint's default branch: it matches whatever no earlier branch did.
+        if branch_tag != tag && branch_tag != "_" {
             continue;
         }
         let lambda = &branch[1];
@@ -1692,6 +1693,34 @@ mod tests {
             assignment_sink: None,
         };
         evaluate_expression(&expression, &eval, &BTreeMap::new())
+    }
+
+    #[test]
+    fn match_variant_falls_back_to_the_default_branch() {
+        let branch = |value: i64| {
+            serde_json::json!({
+                "kind": "lambda",
+                "parameters": ["_"],
+                "body": {"kind": "int", "value": value},
+            })
+        };
+        let tag = |t: &str| serde_json::json!({"kind": "str", "value": t});
+        let matching = |value: serde_json::Value| {
+            serde_json::json!({
+                "kind": "call",
+                "operator": "matchVariant",
+                "arguments": [value, tag("A"), branch(1), tag("_"), branch(2)],
+            })
+        };
+
+        let other = serde_json::json!({
+            "kind": "call",
+            "operator": "C",
+            "arguments": [{"kind": "int", "value": 3}],
+        });
+        assert_eq!(evaluate(matching(other)), Ok(RuntimeValue::Int(2)));
+        assert_eq!(evaluate(matching(tag("B"))), Ok(RuntimeValue::Int(2)));
+        assert_eq!(evaluate(matching(tag("A"))), Ok(RuntimeValue::Int(1)));
     }
 
     #[test]
