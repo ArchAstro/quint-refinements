@@ -3,6 +3,21 @@
 This project follows [Semantic Versioning](https://semver.org/). The compiler
 and the Rust runtime share one version.
 
+## Unreleased
+
+### Added
+
+- A Go runtime, `github.com/ArchAstro/quint-refinements/bindings/go`, that
+  reads the same schema-v2 artifact as the Rust crate with the same
+  semantics: `RuntimeValue`, evidence, fixtures, ownership scheduling, and the
+  obligation evaluator, with identical divergence messages.
+- `compile --go <path>` (and `--go-package`) generates a Go `Implementation`
+  interface, ownership and retrieve tables, and a generic `RefineAll`. Without
+  `--rust` only the Go adapter is written, and `--check` covers it.
+- Go examples (`bank_account`, `raft`, `raft_network`, two-phase commit) whose
+  obligation counts equal the Rust examples', and the shared conformance corpus
+  runs against the Go runtime.
+
 ## 0.2.0
 
 The first release of the Rust runtime on crates.io, and the first where the

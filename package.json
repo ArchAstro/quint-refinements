@@ -13,6 +13,7 @@
     "model-based-testing",
     "conformance",
     "rust",
+    "go",
     "codegen"
   ],
   "packageManager": "npm@11.19.0",
@@ -48,7 +49,7 @@
     "test": "npm run test:compiler && npm run test:docs && npm run check:schema && npm run check:generated && npm run check:corpus",
     "test:compiler": "node --test packages/compiler/cli.test.mjs",
     "test:docs": "node --test docs/docs.test.mjs",
-    "check:schema": "cmp packages/compiler/expression_vocabulary.json bindings/rust/expression_vocabulary.json",
+    "check:schema": "cmp packages/compiler/expression_vocabulary.json bindings/rust/expression_vocabulary.json && cmp packages/compiler/expression_vocabulary.json bindings/go/expression_vocabulary.json",
     "check:generated": "node scripts/generate.mjs --check",
     "check:corpus": "node conformance/validate.mjs",
     "generate": "node scripts/generate.mjs"

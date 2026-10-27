@@ -19,6 +19,7 @@ Reference:
 3. [Command line](reference/cli.md): every command and flag.
 4. [Model annotations and rules](reference/model.md): `@conformance`, `@primitive` and the model conventions.
 5. [Generated Rust](reference/rust.md): the trait you implement and the pieces around it.
-6. [Rust API](https://docs.rs/quint-refinements).
+6. [Generated Go](reference/go.md): the interface you implement in Go, and how it differs from Rust.
+7. [Rust API](https://docs.rs/quint-refinements).
 
-Finished projects: [`bank_account`](../examples/rust/bank_account), [`shop_orders`](../examples/rust/shop_orders), [`transaction_commit`](../examples/rust/transaction_commit), [`raft`](../examples/rust/raft), [`raft_network`](../examples/rust/raft_network).
+Finished projects: [`bank_account`](../examples/rust/bank_account), [`shop_orders`](../examples/rust/shop_orders), [`transaction_commit`](../examples/rust/transaction_commit), [`raft`](../examples/rust/raft), [`raft_network`](../examples/rust/raft_network). The same models in Go: [`bank_account`](../examples/go/bank_account), [`raft`](../examples/go/raft), [`raft_network`](../examples/go/raft_network).

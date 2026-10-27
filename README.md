@@ -5,13 +5,13 @@
 [![crates.io](https://img.shields.io/crates/v/quint-refinements)](https://crates.io/crates/quint-refinements)
 [![docs](https://img.shields.io/badge/docs-archastro.github.io-6d43f5)](https://archastro.github.io/quint-refinements/)
 
-Check that your real code does what your [Quint](https://quint.sh/) model says.
+Check that your real code does what your [Quint](https://quint.sh/) model says. Rust and Go implementations are both supported, and read the same generated scenarios.
 
 You write the model and the implementation. `quint-refinements` generates everything between them, then runs your code through each scenario and checks every guard and next-state assignment against what the code actually did.
 
 ```text
 model.qnt ──compile──> quint-refinements.json        scenarios and obligations
-                       src/generated_refinement.rs   typed trait and runner
+                       src/generated_refinement.rs   typed trait and runner (Rust; --go writes Go)
                                   │
 your implementation ──────────────┘──> cargo run     pass, or the exact divergence
 ```
@@ -132,6 +132,26 @@ Add or rename an action in the model, compile, and `cargo` tells you which metho
 
 Named constants in the model, such as `pure val coffee = { id: "coffee", total: 30 }`, need no Rust at all: a scenario that calls `pay(coffee)` hands your method the record. Override `fixtures` only to bind a constant to a production value, so the two cannot drift.
 
+## What you write in Go
+
+A Go project needs Go 1.22 or newer and no Rust. Generate the adapter with `--go`, then implement the interface it declares:
+
+```console
+npx quint-refinements compile model.qnt --go refinement/generated.go
+go get github.com/ArchAstro/quint-refinements/bindings/go
+```
+
+```go
+type Implementation interface {
+	Snapshot() refinements.Evidence
+	Withdraw(arguments []refinements.RuntimeValue) error
+}
+
+results, err := refinement.RefineAll(NewBank) // NewBank(initial RuntimeValue) (*Bank, error)
+```
+
+A divergence is the same message the Rust runtime gives, for example `bank.withdrawRun:withdraw next: assign state diverged at state.balance expected Int(6), observed Int(10)`. See [Generated Go](docs/reference/go.md).
+
 ## What gets checked
 
 1. Every action in a scenario has an implementation command that owns it.
@@ -159,9 +179,10 @@ It fails when `quint-refinements.json` or `src/generated_refinement.rs` no longe
 quint-refinements new <project-name> [--no-install]
 quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--artifact <path>] [--rust <path>]
+                          [--go <path>] [--go-package <name>]
 ```
 
-`compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`.
+`compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`. `--go` writes a Go adapter instead of the Rust one (add `--rust` to write both).
 
 ## Examples
 
@@ -173,6 +194,9 @@ quint-refinements compile [spec.qnt] [--check] [--module <name>]
 | [`raft`](examples/rust/raft) | Leader election, log replication and commit on three nodes, standard library only | `cargo run --manifest-path examples/rust/raft/Cargo.toml` |
 | [`raft_network`](examples/rust/raft_network) | The same Raft over a network that loses, delays, reorders and duplicates messages | `cargo run --manifest-path examples/rust/raft_network/Cargo.toml` |
 | [`two_phase_commit`](bindings/rust/examples/two_phase_commit) | `@primitive`: one `commit()` owning three actions, plus fixtures | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit` |
+| [`go/bank_account`](examples/go/bank_account) | The tutorial's bank in Go, with a deliberately wrong bank that is caught | `cd examples/go/bank_account && go run .` |
+| [`go/raft`](examples/go/raft), [`go/raft_network`](examples/go/raft_network) | The two Raft examples in Go, with the same obligation counts as Rust | `cd examples/go/raft && go run .` |
+| [`two_phase_commit` (Go)](bindings/go/examples/two_phase_commit) | `@primitive` and a bound enum fixture in Go | `cd bindings/go && go test ./examples/...` |
 | `two_phase_commit_async` | The same generated adapter through the async driver | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit_async` |
 
 The [examples guide](examples/README.md) lists the smaller runtime examples in learning order.
@@ -182,17 +206,19 @@ The [examples guide](examples/README.md) lists the smaller runtime examples in l
 ```text
 packages/compiler/   the npx CLI: Quint AST in, artifact and Rust adapter out
 bindings/rust/       the Rust runtime, published to crates.io
-examples/rust/       complete generated projects
+bindings/go/         the Go runtime, a Go module
+examples/rust/       complete generated Rust projects
+examples/go/         the same models implemented in Go
 conformance/         artifact schema and golden cases every binding must pass
 docs/                guides and reference, as Markdown
 website/             the documentation site built from docs/
 ```
 
-The compiler and the Rust runtime release together under one version. Other language runtimes belong under `bindings/<language>` and read the same artifact.
+The compiler, the Rust runtime and the Go runtime release together under one version. Other language runtimes belong under `bindings/<language>` and read the same artifact; the cases in `conformance/` are what each must pass.
 
 ## Beyond the generated adapter
 
-The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and `Driver`, so you can drive scenarios yourself with `refine_scenario`, `refine_scenario_async` or a step-by-step `RefinementSession`. The lower-level JavaScript generator is exported as `quint-refinements/generate.mjs` for integrations that need custom capability names or partial refinement. See the [crate documentation](https://docs.rs/quint-refinements).
+The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and `Driver`, so you can drive scenarios yourself with `refine_scenario`, `refine_scenario_async` or a step-by-step `RefinementSession`. The lower-level JavaScript generator is exported as `quint-refinements/generate.mjs` for integrations that need custom capability names or partial refinement. See the [crate documentation](https://docs.rs/quint-refinements), or the [Go API](https://pkg.go.dev/github.com/ArchAstro/quint-refinements/bindings/go).
 
 ## Contributing
 
