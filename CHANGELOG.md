@@ -23,6 +23,8 @@ and the Rust runtime share one version.
 - Go examples (`bank_account`, `raft`, `raft_network`, two-phase commit) whose
   obligation counts equal the Rust examples', and the shared conformance corpus
   runs against the Go runtime.
+- `compile --compact` writes the artifact without indentation, about a tenth
+  the size for models whose steps inline large obligations.
 
 ## 0.2.0
 

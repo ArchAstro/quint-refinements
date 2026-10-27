@@ -4,7 +4,7 @@
 quint-refinements new <project-name> [--no-install]
 quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--artifact <path>] [--rust <path>]
-                          [--go <path>] [--go-package <name>]
+                          [--go <path>] [--go-package <name>] [--compact]
 quint-refinements --version
 quint-refinements --help
 ```
@@ -56,6 +56,7 @@ Both are replaced on every run. `src/main.rs` is written only when it does not e
 | `--rust <path>` | `src/generated_refinement.rs` | Where the Rust module goes. With this flag `src/main.rs` is not scaffolded. |
 | `--go <path>` | off | Write a Go adapter instead of the Rust one. Pass `--rust` as well to write both. The artifact must sit in the adapter's directory, because Go embeds it from there. |
 | `--go-package <name>` | the adapter's directory name | The Go package clause. |
+| `--compact` | off | Write the artifact as one line. Each step inlines its obligations, so a large model's indented artifact is mostly whitespace. Pass it to `--check` too: the check compares bytes. |
 
 ### Output
 

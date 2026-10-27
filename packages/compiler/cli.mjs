@@ -1122,7 +1122,9 @@ export function compileProject(sourceArgument, options = {}) {
   project.retrieve = [...generatedDependencies].sort();
   project.paths = project.retrieve.filter(dependency => dependency.startsWith("path:"));
   project.fixtureNames = Object.keys(artifact.fixtures?.[project.module] ?? {}).sort();
-  const artifactContent = `${JSON.stringify(artifact, null, 2)}\n`;
+  // Every step inlines its obligations, so a large model's artifact is mostly
+  // indentation; `compact` drops it.
+  const artifactContent = `${JSON.stringify(artifact, null, options.compact ? undefined : 2)}\n`;
   const relativeArtifact = adapterPath => path
     .relative(path.dirname(adapterPath), artifactPath)
     .split(path.sep)
@@ -1364,6 +1366,7 @@ Usage:
                          written. The artifact must sit inside the adapter's
                          directory, which is where Go embeds it from.
       --go-package <n>   Go package name (default: the adapter's directory name)
+      --compact          Write the artifact without indentation
 
 In the model:
   /// @conformance                       marks a run as a refinement scenario
@@ -1424,11 +1427,12 @@ Next:
     const go = optionValue(args, "--go");
     const goPackage = optionValue(args, "--go-package");
     const check = args.includes("--check");
-    const positional = args.filter(argument => argument !== "--check");
+    const compact = args.includes("--compact");
+    const positional = args.filter(argument => argument !== "--check" && argument !== "--compact");
     if (positional.length > 1 || positional.some(argument => argument.startsWith("--"))) {
       fail(`unexpected compile arguments: ${positional.join(" ")}`);
     }
-    const result = compileProject(positional[0] ?? defaultSource, { module, check, artifact, rust, go, goPackage });
+    const result = compileProject(positional[0] ?? defaultSource, { module, check, compact, artifact, rust, go, goPackage });
     const written = [result.artifactPath, result.generatedRustPath, result.generatedGoPath]
       .filter(Boolean)
       .map(file => path.relative(process.cwd(), file));
