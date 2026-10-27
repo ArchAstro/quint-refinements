@@ -5,13 +5,13 @@
 [![crates.io](https://img.shields.io/crates/v/quint-refinements)](https://crates.io/crates/quint-refinements)
 [![docs](https://img.shields.io/badge/docs-archastro.github.io-6d43f5)](https://archastro.github.io/quint-refinements/)
 
-Check that your real code does what your [Quint](https://quint.sh/) model says. Rust and Go implementations are both supported, and read the same generated scenarios.
+Check that your real code does what your [Quint](https://quint.sh/) model says. Rust, Go and TypeScript implementations are supported, and read the same generated scenarios.
 
 You write the model and the implementation. `quint-refinements` generates everything between them, then runs your code through each scenario and checks every guard and next-state assignment against what the code actually did.
 
 ```text
 model.qnt ──compile──> quint-refinements.json        scenarios and obligations
-                       src/generated_refinement.rs   typed trait and runner (Rust; --go writes Go)
+                       src/generated_refinement.rs   typed trait and runner (Rust; --go and --typescript write Go and TypeScript)
                                   │
 your implementation ──────────────┘──> cargo run     pass, or the exact divergence
 ```
@@ -152,6 +152,26 @@ results, err := refinement.RefineAll(NewBank) // NewBank(initial RuntimeValue) (
 
 A divergence is the same message the Rust runtime gives, for example `bank.withdrawRun:withdraw next: assign state diverged at state.balance expected Int(6), observed Int(10)`. See [Generated Go](docs/reference/go.md).
 
+## What you write in TypeScript
+
+A TypeScript project needs Node.js 22 or newer and no Rust. The runtime ships in the same npm package, as `quint-refinements/runtime`. Generate the adapter with `--typescript`, then implement the interface it declares:
+
+```console
+npm install --save-dev quint-refinements
+npx quint-refinements compile model.qnt --typescript refinement/generated.ts
+```
+
+```ts
+interface Implementation {
+  snapshot(): Evidence;
+  withdraw(args: readonly RuntimeValue[]): void;
+}
+
+const results = await refineAll(Bank.fromState); // Bank.fromState(initial: RuntimeValue): Bank
+```
+
+Methods may return promises under `refineAll`; `refineAllSync` is the synchronous form. Quint integers are `bigint`. A divergence is the same message the Rust and Go runtimes give, for example `bank.withdrawRun:withdraw next: assign state diverged at state.balance expected Int(6), observed Int(14)`. See [Generated TypeScript](docs/reference/typescript.md).
+
 ## What gets checked
 
 1. Every action in a scenario has an implementation command that owns it.
@@ -179,10 +199,11 @@ It fails when `quint-refinements.json` or `src/generated_refinement.rs` no longe
 quint-refinements new <project-name> [--no-install]
 quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--artifact <path>] [--rust <path>]
-                          [--go <path>] [--go-package <name>] [--compact]
+                          [--go <path>] [--go-package <name>]
+                          [--typescript <path>] [--compact]
 ```
 
-`compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`. `--go` writes a Go adapter instead of the Rust one (add `--rust` to write both).
+`compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`. `--go` and `--typescript` write a Go or TypeScript adapter instead of the Rust one (add `--rust` to write Rust as well).
 
 ## Examples
 
@@ -197,6 +218,9 @@ quint-refinements compile [spec.qnt] [--check] [--module <name>]
 | [`go/bank_account`](examples/go/bank_account) | The tutorial's bank in Go, with a deliberately wrong bank that is caught | `cd examples/go/bank_account && go run .` |
 | [`go/raft`](examples/go/raft), [`go/raft_network`](examples/go/raft_network) | The two Raft examples in Go, with the same obligation counts as Rust | `cd examples/go/raft && go run .` |
 | [`two_phase_commit` (Go)](bindings/go/examples/two_phase_commit) | `@primitive` and a bound enum fixture in Go | `cd bindings/go && go test ./examples/...` |
+| [`typescript/bank_account`](examples/typescript/bank_account) | The tutorial's bank in TypeScript, with wrong banks that are caught | `node examples/typescript/bank_account/main.ts` |
+| [`typescript/two_phase_commit`](examples/typescript/two_phase_commit) | `@primitive`, a bound fixture and the async runner in TypeScript | `node examples/typescript/two_phase_commit/main.ts` |
+| [`typescript/raft`](examples/typescript/raft) | The Raft example in TypeScript, with the same obligation counts as Rust | `node examples/typescript/raft/main.ts` |
 | `two_phase_commit_async` | The same generated adapter through the async driver | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit_async` |
 
 The [examples guide](examples/README.md) lists the smaller runtime examples in learning order.
@@ -207,18 +231,20 @@ The [examples guide](examples/README.md) lists the smaller runtime examples in l
 packages/compiler/   the npx CLI: Quint AST in, artifact and Rust adapter out
 bindings/rust/       the Rust runtime, published to crates.io
 bindings/go/         the Go runtime, a Go module
+bindings/typescript/ the TypeScript runtime, shipped in the npm package as quint-refinements/runtime
 examples/rust/       complete generated Rust projects
 examples/go/         the same models implemented in Go
+examples/typescript/ the same models implemented in TypeScript
 conformance/         artifact schema and golden cases every binding must pass
 docs/                guides and reference, as Markdown
 website/             the documentation site built from docs/
 ```
 
-The compiler, the Rust runtime and the Go runtime release together under one version. Other language runtimes belong under `bindings/<language>` and read the same artifact; the cases in `conformance/` are what each must pass.
+The compiler, the TypeScript runtime (inside the npm package), the Rust runtime and the Go runtime release together under one version. Other language runtimes belong under `bindings/<language>` and read the same artifact; the cases in `conformance/` are what each must pass.
 
 ## Beyond the generated adapter
 
-The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and `Driver`, so you can drive scenarios yourself with `refine_scenario`, `refine_scenario_async` or a step-by-step `RefinementSession`. The lower-level JavaScript generator is exported as `quint-refinements/generate.mjs` for integrations that need custom capability names or partial refinement. See the [crate documentation](https://docs.rs/quint-refinements), or the [Go API](https://pkg.go.dev/github.com/ArchAstro/quint-refinements/bindings/go).
+The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and `Driver`, so you can drive scenarios yourself with `refine_scenario`, `refine_scenario_async` or a step-by-step `RefinementSession`. The lower-level JavaScript generator is exported as `quint-refinements/generate.mjs` for integrations that need custom capability names or partial refinement. See the [crate documentation](https://docs.rs/quint-refinements), the [Go API](https://pkg.go.dev/github.com/ArchAstro/quint-refinements/bindings/go), or [Generated TypeScript](docs/reference/typescript.md), whose generated module exposes `ownership`, `retrieve`, `artifact()` and `driver` for `refineScenario`.
 
 ## Contributing
 

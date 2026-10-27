@@ -1,7 +1,7 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/). The compiler
-and the Rust runtime share one version.
+and the Rust, Go and TypeScript runtimes share one version.
 
 ## Unreleased
 
@@ -25,6 +25,18 @@ and the Rust runtime share one version.
   runs against the Go runtime.
 - `compile --compact` writes the artifact without indentation, about a tenth
   the size for models whose steps inline large obligations.
+- A TypeScript runtime, shipped in the npm package as
+  `quint-refinements/runtime` with `.d.ts` files and no dependencies. It reads
+  the same schema-v2 artifact as the Rust and Go runtimes with the same
+  semantics and divergence messages. Quint integers are `bigint`. It has a
+  synchronous and an asynchronous driver.
+- `compile --typescript <path>` generates a typed `Implementation` interface,
+  ownership and retrieve tables, `artifact()`, and `refineAll` /
+  `refineAllSync`. Without `--rust` only the TypeScript adapter is written,
+  and `--check` covers it.
+- TypeScript examples (`bank_account`, `two_phase_commit`, `raft`) whose
+  obligation counts equal the Rust examples', and the shared conformance
+  corpus runs against the TypeScript runtime.
 
 ## 0.2.0
 

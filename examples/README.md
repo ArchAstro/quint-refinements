@@ -34,3 +34,12 @@ The same models, implemented in Go against the Go runtime. Each is its own modul
 3. `cd examples/go/raft_network && go run .`: Raft over a lossy network.
 4. `cd bindings/go && go test ./examples/... ./corpus/...`: one `Commit` method owning three actions, with a Go enum bound as a model fixture, and the shared corpus.
 
+## TypeScript
+
+The same models, implemented in TypeScript against the runtime in `bindings/typescript`. Run `npm ci && npm run build:runtime` once at the repository root: the examples import `quint-refinements/runtime`, which resolves to that build. Node 22.18 or newer runs the `.ts` files directly.
+
+1. `node examples/typescript/bank_account/main.ts`: the tutorial's bank. `node --test examples/typescript/bank_account/bank.test.ts` also runs deliberately wrong banks and checks the divergence messages, and an implementation whose methods return promises.
+2. `node examples/typescript/two_phase_commit/main.ts`: one `commit()` owning three actions, with a status universe bound to a production value, run through the async runner.
+3. `node examples/typescript/raft/main.ts`: the Raft cluster, standard library only. Its per-scenario obligation counts equal the Rust example's.
+4. `node --test bindings/typescript/corpus/corpus.test.ts`: the shared conformance corpus.
+
