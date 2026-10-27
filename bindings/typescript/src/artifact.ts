@@ -136,6 +136,12 @@ class StrictObject {
     return this.invalid(key, "an unsigned integer");
   }
 
+  /** A `u32`, which is how Rust and Go read `schemaVersion`. */
+  version(key: string): number {
+    const value = this.count(key);
+    return value <= 0xffffffff ? value : this.invalid(key, "a 32-bit unsigned integer");
+  }
+
   strings(key: string, required: boolean): readonly string[] {
     const value = this.raw(key, required);
     if (value === undefined) {
@@ -249,20 +255,21 @@ function decodeFixtures(value: Json | undefined): Record<string, Record<string, 
   if (!isObject(value)) {
     return fail("invalid field `fixtures`: expected an object");
   }
-  const fixtures: Record<string, Record<string, Json>> = {};
+  // No prototype: a fixture named `toString` or `__proto__` is an ordinary key.
+  const fixtures = Object.create(null) as Record<string, Record<string, Json>>;
   for (const namespace of sortedKeys(value)) {
     const entries = value[namespace];
     if (!isObject(entries)) {
       return fail("invalid field `fixtures`: expected an object of objects");
     }
-    fixtures[namespace] = { ...entries };
+    fixtures[namespace] = Object.assign(Object.create(null) as Record<string, Json>, entries);
   }
   return fixtures;
 }
 
 function decodeArtifact(root: Json): ConformanceArtifact {
   const reader = new StrictObject(root, "artifact");
-  const schemaVersion = reader.count("schemaVersion");
+  const schemaVersion = reader.version("schemaVersion");
   const modelDigest = reader.string("modelDigest");
   const vocabularyValue = reader.json("vocabulary", true);
   const fixtures = decodeFixtures(reader.json("fixtures", true));

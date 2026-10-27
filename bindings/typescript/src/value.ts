@@ -1,5 +1,5 @@
 import { fail } from "./error.js";
-import { compareStrings, type Json, type JsonObject, parseJson, sortedKeys } from "./json.js";
+import { compareStrings, type Json, type JsonObject, jsonString, parseJson, sortedKeys } from "./json.js";
 
 /**
  * A normalized Quint value reconstructed from runtime-owned evidence. The
@@ -341,7 +341,9 @@ export function debugString(value: string): string {
         out += "\\0";
         break;
       default:
-        out += /^[\p{L}\p{M}\p{N}\p{P}\p{S} ]$/u.test(char) ? char : `\\u{${char.codePointAt(0)!.toString(16)}}`;
+        out += /^[\p{L}\p{M}\p{N}\p{P}\p{S} ]$/u.test(char) && !/^\p{Grapheme_Extend}$/u.test(char)
+          ? char
+          : `\\u{${char.codePointAt(0)!.toString(16)}}`;
     }
   }
   return `${out}"`;
@@ -400,10 +402,10 @@ function decodeArray(value: Json | undefined, kind: string): RuntimeValue[] {
 }
 
 function bigintFromText(value: string): bigint {
-  if (!/^-?[0-9]+$/.test(value)) {
+  if (!/^[+-]?[0-9]+$/.test(value)) {
     return fail(`ITF #bigint is not an integer: ${value}`);
   }
-  return BigInt(value);
+  return BigInt(value.replace(/^\+/, ""));
 }
 
 function fromItfObject(object: JsonObject): RuntimeValue {
@@ -483,10 +485,8 @@ export function fromItfJson(value: Json): RuntimeValue {
     case "bigint":
       return int(value);
     case "number":
-      if (!Number.isSafeInteger(value)) {
-        return fail(`ITF number is outside normalized integer range: ${value}`);
-      }
-      return int(value);
+      // The parser yields a number only for a literal with a fraction or exponent.
+      return fail(`ITF number is outside normalized integer range: ${jsonString(value)}`);
     default:
       break;
   }

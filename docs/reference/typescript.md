@@ -173,3 +173,4 @@ The generated file exports `ownership`, `retrieve`, `artifact()`, `driver(implem
 3. `compile --typescript` does not add a language to `new`. `new` scaffolds a Rust project, as it does for Go.
 4. Artifact parse errors name the same fields but are worded by this runtime, where serde words them differently.
 5. Errors are thrown as `RefinementError` rather than returned.
+6. The JSON reader accepts a repeated key in an artifact (the last wins; serde rejects it for struct fields) and has no nesting limit.

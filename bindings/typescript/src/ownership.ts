@@ -64,7 +64,7 @@ export function collectOwnershipRecords(...tables: readonly OwnershipTable[]): O
   const descriptors: OwnershipDescriptor[] = [];
   for (const table of tables) {
     for (const record of table.descriptors) {
-      if (record.primitive.trim() === "") {
+      if (record.primitive.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "") === "") {
         return fail(`ownership record owned by ${table.owner} has an empty primitive ID`);
       }
       if ((record.refines?.length ?? 0) > 1 && (record.aliases?.length ?? 0) > 0) {

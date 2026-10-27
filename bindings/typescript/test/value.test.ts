@@ -131,3 +131,20 @@ test("fields named like Object.prototype members are ordinary fields", () => {
   const value = fromItfText('{"ok": 1, "constructor": 2, "toString": 3}');
   assert.deepEqual(value.kind === "record" ? [...value.fields.keys()] : [], ["constructor", "ok", "toString"]);
 });
+
+test("ITF decoding agrees with Rust and Go on awkward literals", () => {
+  for (const input of ["1.0", "1e2", "[1.0]", '{"a": 1.5e3}']) {
+    assert.throws(() => fromItfText(input), /ITF number is outside normalized integer range/, input);
+  }
+  assert.ok(equal(fromItfText('{"#bigint": "+5"}'), int(5)));
+  for (const input of ['"\\ud800"', '"\\udc00"', '"\\ud800x"']) {
+    assert.throws(() => fromItfText(input), /surrogate/, input);
+  }
+  assert.ok(equal(fromItfText('"\\ud83d\\ude00"'), text("😀")));
+  assert.ok(equal(fromItfText(`${"1".padEnd(450, "0")}`), int(10n ** 449n)), "integer literals have no length limit");
+});
+
+test("debug escapes combining marks like Rust", () => {
+  assert.equal(debug(text("é")), 'Text("e\\u{301}")');
+  assert.equal(debug(text("é")), 'Text("é")');
+});

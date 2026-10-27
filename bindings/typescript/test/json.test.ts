@@ -33,3 +33,7 @@ test("jsonString sorts keys compactly like serde_json", () => {
   assert.equal(jsonString(parseJson('{"b": [1, {"d": 1, "c": "x"}], "a": null, "é": true}')), '{"a":null,"b":[1,{"c":"x","d":1}],"é":true}');
   assert.equal(jsonString(123456789012345678901234567890n), "123456789012345678901234567890");
 });
+
+test("jsonString keeps floats distinct from integers like serde_json", () => {
+  assert.equal(jsonString(parseJson('{"a": 1.0, "b": 1, "c": 1e2, "d": 1.5}')), '{"a":1.0,"b":1,"c":100.0,"d":1.5}');
+});

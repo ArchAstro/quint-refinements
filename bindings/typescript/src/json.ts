@@ -99,7 +99,9 @@ class Parser {
   }
 
   private parseNumber(): Json {
-    const match = /^-?(?:0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/.exec(this.source.slice(this.position, this.position + 400));
+    const pattern = /-?(?:0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/y;
+    pattern.lastIndex = this.position;
+    const match = pattern.exec(this.source);
     if (match === null) {
       throw this.error("invalid number");
     }
@@ -163,11 +165,27 @@ class Parser {
           throw this.error("invalid unicode escape");
         }
         this.position += 4;
-        return String.fromCharCode(Number.parseInt(digits, 16));
+        return this.surrogateSafe(Number.parseInt(digits, 16));
       }
       default:
         throw this.error("invalid escape");
     }
+  }
+
+  /** Decodes one `\\uXXXX` unit; an unpaired surrogate is rejected, as serde_json does. */
+  private surrogateSafe(unit: number): string {
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const low = /^\\u(d[c-f][0-9a-f]{2})/i.exec(this.source.slice(this.position, this.position + 6));
+      if (low === null) {
+        throw this.error("lone leading surrogate in hex escape");
+      }
+      this.position += 6;
+      return String.fromCharCode(unit, Number.parseInt(low[1]!, 16));
+    }
+    if (unit >= 0xdc00 && unit <= 0xdfff) {
+      throw this.error("lone trailing surrogate in hex escape");
+    }
+    return String.fromCharCode(unit);
   }
 
   private parseArray(): Json {
@@ -248,7 +266,8 @@ export function jsonString(value: Json): string {
     case "bigint":
       return value.toString();
     case "number":
-      return Number.isFinite(value) ? JSON.stringify(value) : "null";
+      // serde_json prints a float with a fraction, so `1.0` stays distinct from `1`.
+      return !Number.isFinite(value) ? "null" : Number.isInteger(value) ? `${Object.is(value, -0) ? "-0" : value}.0` : JSON.stringify(value);
     default:
       break;
   }

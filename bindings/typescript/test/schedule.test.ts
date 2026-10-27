@@ -94,3 +94,8 @@ test("a resolved action renders like Rust's Debug", () => {
     '[ResolvedAction { name: "a", arguments: [Int(1)] }, ResolvedAction { name: "b", arguments: [] }]',
   );
 });
+
+test("an empty primitive id is judged by Unicode White_Space, as Rust's trim does", () => {
+  assert.throws(() => collectOwnershipRecords({ owner: "o", descriptors: [{ primitive: "\u0085" }] }), /empty primitive ID/);
+  assert.equal(collectOwnershipRecords({ owner: "o", descriptors: [{ primitive: "﻿" }] }).length, 1);
+});

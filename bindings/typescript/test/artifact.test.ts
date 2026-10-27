@@ -20,7 +20,8 @@ test("parses every field of a minimal artifact", () => {
   const artifact = parseConformanceArtifact(minimalArtifact);
   assert.equal(artifact.modelDigest, "sha256:test");
   assert.deepEqual(artifact.vocabulary.capabilities, ["transport.basic"]);
-  assert.deepEqual(artifact.fixtures, { m: {} });
+  assert.deepEqual(Object.keys(artifact.fixtures), ["m"]);
+  assert.deepEqual(Object.keys(artifact.fixtures["m"]!), []);
   const [scenario] = artifact.scenarios;
   assert.equal(scenarioId(scenario!), "m.run");
   assert.deepEqual(scenario?.steps.map(step => step.kind), ["init", "action", "action", "action"]);
@@ -56,4 +57,8 @@ test("a complete refinement artifact must use the evaluator's vocabulary", () =>
   assert.throws(() => parseConformanceArtifact(text), {
     message: "artifact refinement expression vocabulary differs from the TypeScript evaluator",
   });
+});
+
+test("schemaVersion is a u32", () => {
+  assert.throws(() => parseConformanceArtifact(minimalArtifact.replace('"schemaVersion": 2', '"schemaVersion": 4294967296')), /invalid field `schemaVersion`/);
 });
