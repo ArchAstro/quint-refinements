@@ -183,7 +183,7 @@ function parseQuint(sourcePath) {
   }
 }
 
-export function inferProject(parsed, sourceName, requestedModule) {
+export function inferProject(parsed, sourceName, requestedModule, targets = { rust: true, go: false }) {
   const candidates = (parsed.modules ?? []).filter(module =>
     module.declarations.some(declaration =>
       declaration.kind === "def"
@@ -335,17 +335,22 @@ export function inferProject(parsed, sourceName, requestedModule) {
       .filter(action => !owned.has(action))
       .map(action => ({ name: action, actions: [action], compound: false })),
   ].sort((left, right) => left.name.localeCompare(right.name));
-  const rustPrimitives = new Map();
-  for (const primitive of primitives) {
-    const identifier = rustIdentifier(primitive.name);
-    if (rustKeywords.has(identifier) || reservedHooks.has(identifier)) {
-      fail(`${primitive.name} maps to reserved Rust name ${identifier}; rename it or wrap it in a @primitive`);
+  if (targets.rust) {
+    const rustPrimitives = new Map();
+    for (const primitive of primitives) {
+      const identifier = rustIdentifier(primitive.name);
+      if (rustKeywords.has(identifier) || reservedHooks.has(identifier)) {
+        fail(`${primitive.name} maps to reserved Rust name ${identifier}; rename it or wrap it in a @primitive`);
+      }
+      const existing = rustPrimitives.get(identifier);
+      if (existing) {
+        fail(`${existing} and ${primitive.name} both map to Rust identifier ${identifier}`);
+      }
+      rustPrimitives.set(identifier, primitive.name);
     }
-    const existing = rustPrimitives.get(identifier);
-    if (existing) {
-      fail(`${existing} and ${primitive.name} both map to Rust identifier ${identifier}`);
-    }
-    rustPrimitives.set(identifier, primitive.name);
+  }
+  if (targets.go) {
+    checkGoNames(primitives);
   }
   const observationOperators = [...vocabulary.operators]
     .filter(operator => !["assert", "assign"].includes(operator))
@@ -598,6 +603,247 @@ pub fn refine_all<I: Implementation>() -> Result<Vec<ScenarioResult<I>>, String>
 `;
 }
 
+const goModulePath = "github.com/ArchAstro/quint-refinements/bindings/go";
+
+const goKeywords = new Set([
+  "break", "case", "chan", "const", "continue", "default", "defer", "else",
+  "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map",
+  "package", "range", "return", "select", "struct", "switch", "type", "var",
+]);
+
+// Names the generated Go `Implementation` interface already uses.
+const goReservedMethods = new Set(["Snapshot"]);
+
+// `commit_prepared` and `commitPrepared` both become `CommitPrepared`.
+export function goMethodName(name) {
+  const parts = rustIdentifier(name).split("_").filter(Boolean);
+  const pascal = parts.map(part => part[0].toUpperCase() + part.slice(1)).join("");
+  return /^[A-Z]/.test(pascal) ? pascal : `Action${pascal}`;
+}
+
+export function goPackageName(goPath, requested) {
+  if (requested !== undefined) {
+    if (!/^[a-z_][a-z0-9_]*$/.test(requested) || goKeywords.has(requested)) {
+      fail(`--go-package ${requested} is not a valid Go package name`);
+    }
+    return requested;
+  }
+  const directory = path.basename(path.dirname(path.resolve(goPath)));
+  const candidate = directory.toLowerCase().replace(/[^a-z0-9_]/g, "");
+  return /^[a-z_]/.test(candidate) && !goKeywords.has(candidate) ? candidate : "adapter";
+}
+
+function goStrings(values) {
+  return `[]string{${values.map(rustString).join(", ")}}`;
+}
+
+function checkGoNames(primitives) {
+  const methods = new Map();
+  for (const primitive of primitives) {
+    const method = goMethodName(primitive.name);
+    if (goReservedMethods.has(method)) {
+      fail(`${primitive.name} maps to reserved Go method ${method}; rename it or wrap it in a @primitive`);
+    }
+    if (methods.has(method)) {
+      fail(`${methods.get(method)} and ${primitive.name} both map to Go method ${method}`);
+    }
+    methods.set(method, primitive.name);
+  }
+}
+
+export function generateGoModule(project, packageName) {
+  checkGoNames(project.primitives);
+  if (project.artifactInclude.startsWith("..") || path.isAbsolute(project.artifactInclude)) {
+    fail(
+      `the Go adapter embeds ${project.artifactInclude}, but go:embed cannot reach outside the package directory; `
+      + "pass --artifact with a path inside the --go file's directory",
+    );
+  }
+  const observations = goStrings(project.paths);
+  const retrieveNames = goStrings(project.stateVariables.map(name => `name:${name}`));
+  const records = project.primitives.map(primitive => `{
+			Primitive:    ${rustString(primitiveId(project, primitive))},
+			Refines:      ${goStrings(primitive.actions)},
+			Observations: ${observations},
+			Retrieve:     ${retrieveNames},
+		},`).join("\n\t\t");
+  const retrieve = project.retrieve.map(value => `\t${rustString(value)},`).join("\n");
+  const interfaceMethods = project.primitives.map(primitive => {
+    const method = goMethodName(primitive.name);
+    return primitive.compound
+      ? `\t// ${method} executes Quint actions ${quoted(primitive.actions)} as one command.
+\t//
+\t// Return one snapshot taken after each action, in that order.
+\t${method}(actions []refinements.ResolvedAction) ([]refinements.Evidence, error)`
+      : `\t// ${method} executes Quint action \`${primitive.name}\` with its generated arguments.
+\t${method}(arguments []refinements.RuntimeValue) error`;
+  }).join("\n\n");
+  const cases = project.primitives.map(primitive => {
+    const method = goMethodName(primitive.name);
+    return primitive.compound
+      ? `\tcase ${rustString(primitiveId(project, primitive))}:
+\t\texpected := ${goStrings(primitive.actions)}
+\t\tif !slices.EqualFunc(actions, expected, func(action refinements.ResolvedAction, name string) bool { return action.Name == name }) {
+\t\t\treturn nil, fmt.Errorf("${primitive.name} refines %s; got %s", refinements.FormatStrings(expected), refinements.FormatActions(actions))
+\t\t}
+\t\treturn d.Implementation.${method}(actions)`
+      : `\tcase ${rustString(primitiveId(project, primitive))}:
+\t\tif len(actions) != 1 {
+\t\t\treturn nil, fmt.Errorf("${primitive.name} expects one Quint action; got %s", refinements.FormatActions(actions))
+\t\t}
+\t\tif actions[0].Name != ${rustString(primitive.name)} {
+\t\t\treturn nil, fmt.Errorf("${primitive.name} primitive cannot refine %s", actions[0].Name)
+\t\t}
+\t\tif err := d.Implementation.${method}(actions[0].Arguments); err != nil {
+\t\t\treturn nil, err
+\t\t}
+\t\treturn []refinements.Evidence{d.Implementation.Snapshot()}, nil`;
+  }).join("\n");
+
+  return `// Code generated by quint-refinements from ${project.source}. DO NOT EDIT.
+// Regenerate with \`quint-refinements compile\`.
+
+package ${packageName}
+
+import (
+	_ "embed"
+	"fmt"${project.primitives.some(primitive => primitive.compound) ? '\n\t"slices"' : ""}
+
+	refinements ${rustString(goModulePath)}
+)
+
+//go:embed ${project.artifactInclude}
+var traces []byte
+
+// Ownership says which implementation command owns each Quint action.
+var Ownership = refinements.OwnershipTable{
+	Owner: ${rustString(`${project.module}-generated-refinement`)},
+	Descriptors: []refinements.OwnershipRecord{
+		${records}
+	},
+}
+
+// Retrieve is everything the generated obligations may read from a snapshot.
+var Retrieve = []string{
+${retrieve}
+}
+
+// Implementation is the domain implementation connected to the generated Quint
+// scenarios. Snapshot must return a value that no later action changes.
+type Implementation interface {
+	// Snapshot returns the current observable implementation state.
+	Snapshot() refinements.Evidence
+
+${interfaceMethods}
+}
+
+// Option customizes RefineAll.
+type Option func(*settings)
+
+type settings struct {
+	fixtures func(*refinements.ConformanceArtifact) (*refinements.FixtureTable, error)
+}
+
+// WithFixtures supplies the values for the constants the model names, such as
+// \`pure val limit = 3\`.
+//
+// By default each constant has the value the model gives it. Use this to bind a
+// constant to a production value instead; the runner then fails if that value
+// and the model disagree.
+func WithFixtures(fixtures func(*refinements.ConformanceArtifact) (*refinements.FixtureTable, error)) Option {
+	return func(s *settings) { s.fixtures = fixtures }
+}
+
+// ScenarioResult is the result of refining one generated Quint run.
+type ScenarioResult[I Implementation] struct {
+	// Scenario is the fully qualified generated scenario name.
+	Scenario string
+	// EvaluatedObligations is the number of evaluated guard and next-state obligations.
+	EvaluatedObligations int
+	// Implementation is the implementation state after the scenario completed.
+	Implementation I
+}
+
+// Driver dispatches each owned Quint action sequence to its implementation hook.
+type Driver[I Implementation] struct {
+	// Implementation is the implementation under refinement.
+	Implementation I
+}
+
+// RunPrimitive implements refinements.PrimitiveDriver.
+func (d *Driver[I]) RunPrimitive(primitive string, actions []refinements.ResolvedAction) ([]refinements.Evidence, error) {
+	switch primitive {
+${cases}
+	default:
+		return nil, fmt.Errorf("unknown generated primitive %s", primitive)
+	}
+}
+
+// Artifact parses the generated scenarios this package was compiled with.
+func Artifact() (*refinements.ConformanceArtifact, error) {
+	return refinements.ParseConformanceArtifact(traces)
+}
+
+// RefineAll runs every generated conformance scenario against a fresh
+// implementation built by newImplementation from the scenario's initial state.
+func RefineAll[I Implementation](
+	newImplementation func(initialState refinements.RuntimeValue) (I, error),
+	options ...Option,
+) ([]ScenarioResult[I], error) {
+	var configured settings
+	for _, option := range options {
+		option(&configured)
+	}
+	artifact, err := Artifact()
+	if err != nil {
+		return nil, err
+	}
+	ownership, err := refinements.CollectOwnershipRecords(Ownership)
+	if err != nil {
+		return nil, err
+	}
+	var fixtures *refinements.FixtureTable
+	if configured.fixtures != nil {
+		fixtures, err = configured.fixtures(artifact)
+	} else {
+		fixtures, err = refinements.FixtureTableFromArtifact(${rustString(project.module)}, artifact)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := fixtures.Validate(artifact); err != nil {
+		return nil, err
+	}
+	var results []ScenarioResult[I]
+	for i := range artifact.Scenarios {
+		scenario := &artifact.Scenarios[i]
+		if scenario.InitialState == nil {
+			return nil, fmt.Errorf("%s has no generated initial state", scenario.ID())
+		}
+		initialState, err := refinements.FromITFJSON(scenario.InitialState)
+		if err != nil {
+			return nil, err
+		}
+		implementation, err := newImplementation(initialState)
+		if err != nil {
+			return nil, err
+		}
+		driver := &Driver[I]{Implementation: implementation}
+		evaluated, err := refinements.RefineScenario(scenario, implementation.Snapshot(), ownership, Retrieve, fixtures, driver)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, ScenarioResult[I]{
+			Scenario:             scenario.ID(),
+			EvaluatedObligations: evaluated,
+			Implementation:       driver.Implementation,
+		})
+	}
+	return results, nil
+}
+`;
+}
+
 function generateMain(project) {
   const initializeValues = 'BTreeMap::from([("state".to_owned(), initial_state.clone())])';
   const methods = project.primitives.map(primitive => primitive.compound
@@ -826,6 +1072,20 @@ function formatRust(content) {
   return result.stdout;
 }
 
+function formatGo(content) {
+  const result = spawnSync("gofmt", [], { encoding: "utf8", input: content });
+  if (result.error) {
+    fail(
+      `could not start gofmt (${result.error.message}); `
+      + "install Go from https://go.dev/dl",
+    );
+  }
+  if (result.status !== 0) {
+    fail(`gofmt rejected generated Go:\n${result.stderr ?? ""}`);
+  }
+  return result.stdout;
+}
+
 export function compileProject(sourceArgument, options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const sourcePath = path.resolve(cwd, sourceArgument);
@@ -837,11 +1097,14 @@ export function compileProject(sourceArgument, options = {}) {
   const artifactPath = options.artifact
     ? path.resolve(cwd, options.artifact)
     : path.join(projectDirectory, "quint-refinements.json");
+  // `--go` alone selects a Go-only project; `--rust` adds the Rust adapter.
+  const emitRust = options.rust !== undefined || options.go === undefined;
   const generatedRustPath = options.rust
     ? path.resolve(cwd, options.rust)
     : path.join(projectDirectory, "src", "generated_refinement.rs");
+  const generatedGoPath = options.go ? path.resolve(cwd, options.go) : undefined;
   const parsed = parseQuint(sourcePath);
-  const project = inferProject(parsed, sourceName, options.module);
+  const project = inferProject(parsed, sourceName, options.module, { rust: emitRust, go: generatedGoPath !== undefined });
   const artifact = generateConformanceTraces({
     root: packageRoot,
     specDir: projectDirectory,
@@ -859,22 +1122,35 @@ export function compileProject(sourceArgument, options = {}) {
   project.retrieve = [...generatedDependencies].sort();
   project.paths = project.retrieve.filter(dependency => dependency.startsWith("path:"));
   project.fixtureNames = Object.keys(artifact.fixtures?.[project.module] ?? {}).sort();
-  project.artifactInclude = path
-    .relative(path.dirname(generatedRustPath), artifactPath)
+  const artifactContent = `${JSON.stringify(artifact, null, 2)}\n`;
+  const relativeArtifact = adapterPath => path
+    .relative(path.dirname(adapterPath), artifactPath)
     .split(path.sep)
     .join("/");
-  const artifactContent = `${JSON.stringify(artifact, null, 2)}\n`;
-  const generatedRust = formatRust(generateRustModule(project));
   writeOrCheck(artifactPath, artifactContent, options.check);
-  writeOrCheck(generatedRustPath, generatedRust, options.check);
+  if (emitRust) {
+    project.artifactInclude = relativeArtifact(generatedRustPath);
+    writeOrCheck(generatedRustPath, formatRust(generateRustModule(project)), options.check);
+  }
+  if (generatedGoPath) {
+    project.artifactInclude = relativeArtifact(generatedGoPath);
+    const packageName = goPackageName(generatedGoPath, options.goPackage);
+    writeOrCheck(generatedGoPath, formatGo(generateGoModule(project, packageName)), options.check);
+  }
 
   // The implementation file belongs to the user: scaffold it once, in the
   // standard project layout, and never overwrite it.
   const mainPath = path.join(projectDirectory, "src", "main.rs");
-  if (!options.check && !options.rust && !fs.existsSync(mainPath)) {
+  if (emitRust && !options.check && !options.rust && !fs.existsSync(mainPath)) {
     writeOrCheck(mainPath, formatRust(generateMain(project)), false);
   }
-  return { project, artifactPath, generatedRustPath, mainPath };
+  return {
+    project,
+    artifactPath,
+    generatedRustPath: emitRust ? generatedRustPath : undefined,
+    generatedGoPath,
+    mainPath,
+  };
 }
 
 // A working implementation of the starter model, so a new project refines
@@ -1069,7 +1345,7 @@ export function createProject(name, options = {}) {
 const defaultSource = "model.qnt";
 
 function usage() {
-  console.log(`quint-refinements: check a Rust implementation against a Quint model
+  console.log(`quint-refinements: check a Rust or Go implementation against a Quint model
 
 Usage:
   quint-refinements new <project-name> [--no-install]
@@ -1077,13 +1353,17 @@ Usage:
       and the generated adapter between them.
 
   quint-refinements compile [spec.qnt] [options]
-      Generate the scenario artifact and the Rust adapter from a Quint model.
+      Generate the scenario artifact and the Rust or Go adapter from a Quint model.
       The model defaults to ${defaultSource}.
 
       --check            Fail if the generated files differ from the model (CI)
       --module <name>    Module to compile when several declare scenarios
       --artifact <path>  Scenario artifact (default: quint-refinements.json)
       --rust <path>      Rust adapter (default: src/generated_refinement.rs)
+      --go <path>        Go adapter. Without --rust, only the Go adapter is
+                         written. The artifact must sit inside the adapter's
+                         directory, which is where Go embeds it from.
+      --go-package <n>   Go package name (default: the adapter's directory name)
 
 In the model:
   /// @conformance                       marks a run as a refinement scenario
@@ -1141,16 +1421,21 @@ Next:
     const module = optionValue(args, "--module");
     const artifact = optionValue(args, "--artifact");
     const rust = optionValue(args, "--rust");
+    const go = optionValue(args, "--go");
+    const goPackage = optionValue(args, "--go-package");
     const check = args.includes("--check");
     const positional = args.filter(argument => argument !== "--check");
     if (positional.length > 1 || positional.some(argument => argument.startsWith("--"))) {
       fail(`unexpected compile arguments: ${positional.join(" ")}`);
     }
-    const result = compileProject(positional[0] ?? defaultSource, { module, check, artifact, rust });
+    const result = compileProject(positional[0] ?? defaultSource, { module, check, artifact, rust, go, goPackage });
+    const written = [result.artifactPath, result.generatedRustPath, result.generatedGoPath]
+      .filter(Boolean)
+      .map(file => path.relative(process.cwd(), file));
     console.log(
       check
         ? `${result.project.module} generated artifacts are current`
-        : `generated ${path.relative(process.cwd(), result.artifactPath)} and ${path.relative(process.cwd(), result.generatedRustPath)}`,
+        : `generated ${written.join(" and ")}`,
     );
     return;
   }

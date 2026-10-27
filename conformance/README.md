@@ -17,4 +17,8 @@ may be stricter, but cannot reinterpret these fields.
 2. The Rust binding executes the corpus in `bindings/rust/corpus/corpus.rs`
    and in the bank example's test, comparing primitive calls, obligation
    count, and final state with `expected.json`.
+3. The Go binding executes the same cases: `two_phase_commit` in
+   `bindings/go/corpus/corpus_test.go` and `bank_withdraw` in
+   `examples/go/bank_account/bank_test.go`, with the same comparison. Run
+   them with `go test ./...` in `bindings/go` and in the example module.
 

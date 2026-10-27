@@ -111,6 +111,7 @@ export default defineConfig({
           { text: "npm", link: "https://www.npmjs.com/package/quint-refinements" },
           { text: "crates.io", link: "https://crates.io/crates/quint-refinements" },
           { text: "Rust API (docs.rs)", link: "https://docs.rs/quint-refinements" },
+          { text: "Go API (pkg.go.dev)", link: "https://pkg.go.dev/github.com/ArchAstro/quint-refinements/bindings/go" },
           { text: "Contributing", link: `${repository}/blob/main/CONTRIBUTING.md` },
         ],
       },
@@ -139,6 +140,7 @@ export default defineConfig({
           { text: "Command line", link: "/reference/cli" },
           { text: "Model annotations and rules", link: "/reference/model" },
           { text: "Generated Rust", link: "/reference/rust" },
+          { text: "Generated Go", link: "/reference/go" },
         ],
       },
       {
@@ -159,6 +161,7 @@ export default defineConfig({
           },
           { text: "raft", link: `${repository}/tree/main/examples/rust/raft` },
           { text: "raft_network", link: `${repository}/tree/main/examples/rust/raft_network` },
+          { text: "bank_account (Go)", link: `${repository}/tree/main/examples/go/bank_account` },
         ],
       },
     ],

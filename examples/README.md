@@ -24,3 +24,13 @@ Run these in order:
    - Runs the same generated adapter through the async driver.
 
 Use the bank project as the template for normal integrations and the two-phase commit directory when one production command owns several ordered Quint actions. Examples 2 to 5 use the runtime API directly, without the compiler.
+
+## Go
+
+The same models, implemented in Go against the Go runtime. Each is its own module and resolves the runtime to this checkout:
+
+1. `cd examples/go/bank_account && go run .`: the tutorial's bank. `go test` also runs a deliberately wrong bank and checks the divergence message.
+2. `cd examples/go/raft && go run .`: the Raft cluster, standard library only. Its per-scenario obligation counts equal the Rust example's.
+3. `cd examples/go/raft_network && go run .`: Raft over a lossy network.
+4. `cd bindings/go && go test ./examples/... ./corpus/...`: one `Commit` method owning three actions, with a Go enum bound as a model fixture, and the shared corpus.
+

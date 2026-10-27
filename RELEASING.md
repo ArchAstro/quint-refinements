@@ -1,7 +1,7 @@
 # Releasing
 
-The compiler (npm) and the Rust runtime (crates.io) release together under one
-version. One tag publishes both, in an order that keeps the quick start working:
+The compiler (npm), the Rust runtime (crates.io) and the Go runtime (a Go module)
+release together under one version. One tag publishes both, in an order that keeps the quick start working:
 
 ```text
 vX.Y.Z tag ─> verify ─> crates.io ─> npm ─> run the published quick start ─> GitHub release
@@ -22,7 +22,15 @@ git tag -a v0.2.0 -m "v0.2.0"
 git push origin v0.2.0
 ```
 
-`.github/workflows/publish.yml` does the rest. Every job is safe to re-run: a
+The Go module lives in a subdirectory, so Go resolves its versions from a tag
+named after the directory. Push it for the same commit:
+
+```console
+git tag -a bindings/go/v0.2.0 -m "bindings/go v0.2.0"
+git push origin bindings/go/v0.2.0
+```
+
+`.github/workflows/publish.yml` does the rest for crates.io and npm. Every job is safe to re-run: a
 version that is already published with the same contents is skipped.
 
 ## One-time registry setup

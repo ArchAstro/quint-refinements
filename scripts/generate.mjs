@@ -22,6 +22,23 @@ const models = [
     corpusCase: "bank_withdraw",
   },
   {
+    source: "examples/go/bank_account/bank.qnt",
+    go: "examples/go/bank_account/generated_refinement.go",
+    goPackage: "main",
+  },
+  {
+    source: "examples/rust/raft/model.qnt",
+    artifact: "examples/go/raft/quint-refinements.json",
+    go: "examples/go/raft/generated_refinement.go",
+    goPackage: "main",
+  },
+  {
+    source: "examples/rust/raft_network/model.qnt",
+    artifact: "examples/go/raft_network/quint-refinements.json",
+    go: "examples/go/raft_network/generated_refinement.go",
+    goPackage: "main",
+  },
+  {
     source: "examples/rust/shop_orders/model.qnt",
   },
   {
@@ -39,10 +56,16 @@ const models = [
     rust: "bindings/rust/examples/two_phase_commit/generated.rs",
     corpusCase: "two_phase_commit",
   },
+  {
+    source: "bindings/rust/examples/two_phase_commit/model.qnt",
+    artifact: "bindings/go/examples/two_phase_commit/traces.json",
+    go: "bindings/go/examples/two_phase_commit/generated.go",
+    goPackage: "twophasecommit",
+  },
 ];
 
-for (const { source, artifact, rust, corpusCase } of models) {
-  const { artifactPath } = compileProject(source, { cwd: root, artifact, rust, check });
+for (const { source, artifact, rust, go, goPackage, corpusCase } of models) {
+  const { artifactPath } = compileProject(source, { cwd: root, artifact, rust, go, goPackage, check });
   if (corpusCase) {
     const generated = fs.readFileSync(artifactPath, "utf8");
     const corpusPath = path.join(root, "conformance", "cases", corpusCase, "artifact.json");
