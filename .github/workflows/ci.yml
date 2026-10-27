@@ -86,6 +86,57 @@ jobs:
             )
           done
 
+  typescript:
+    name: TypeScript (Node ${{ matrix.node }}, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["22", "lts/*"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Build the runtime and type-check it with its tests and the examples
+        run: |
+          npm run build:runtime
+          npm run typecheck:typescript
+      - name: Runtime tests and shared conformance corpus
+        run: node --test "bindings/typescript/test/*.test.ts" "bindings/typescript/corpus/*.test.ts"
+      - name: Examples
+        run: |
+          for example in examples/typescript/*/; do
+            node --test "${example}"*.test.ts
+            node "${example}main.ts"
+          done
+      - name: Generated TypeScript adapters are current
+        run: |
+          (cd examples/typescript/bank_account && node ../../../packages/compiler/cli.mjs compile bank.qnt --typescript generated_refinement.ts --check)
+          (cd examples/typescript/two_phase_commit && node ../../../packages/compiler/cli.mjs compile model.qnt --typescript generated_refinement.ts --check)
+          node packages/compiler/cli.mjs compile examples/rust/raft/model.qnt \
+            --artifact examples/typescript/raft/quint-refinements.json \
+            --typescript examples/typescript/raft/generated_refinement.ts --check
+
+  package:
+    name: npm package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Install the packed tarball, compile a model against it and run the result
+        run: |
+          mkdir "${RUNNER_TEMP}/pack"
+          npm pack --pack-destination "${RUNNER_TEMP}/pack"
+          node scripts/check-package.mjs "${RUNNER_TEMP}"/pack/quint-refinements-*.tgz
+
   quality:
     name: Quality
     runs-on: ubuntu-latest
