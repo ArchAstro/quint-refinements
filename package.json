@@ -14,6 +14,7 @@
     "conformance",
     "rust",
     "go",
+    "typescript",
     "codegen"
   ],
   "packageManager": "npm@11.19.0",
@@ -30,13 +31,19 @@
     "packages/compiler/generate.mjs",
     "packages/compiler/expression_vocabulary.json",
     "packages/compiler/README.md",
-    "conformance/artifact.schema.json"
+    "conformance/artifact.schema.json",
+    "bindings/typescript/dist",
+    "bindings/typescript/README.md"
   ],
   "exports": {
     "./generate.mjs": "./packages/compiler/generate.mjs",
     "./harness/generate.mjs": "./packages/compiler/generate.mjs",
     "./expression_vocabulary.json": "./packages/compiler/expression_vocabulary.json",
-    "./artifact.schema.json": "./conformance/artifact.schema.json"
+    "./artifact.schema.json": "./conformance/artifact.schema.json",
+    "./runtime": {
+      "types": "./bindings/typescript/dist/index.d.ts",
+      "default": "./bindings/typescript/dist/index.js"
+    }
   },
   "engines": {
     "node": ">=22"
@@ -52,13 +59,18 @@
     "check:schema": "cmp packages/compiler/expression_vocabulary.json bindings/rust/expression_vocabulary.json && cmp packages/compiler/expression_vocabulary.json bindings/go/expression_vocabulary.json",
     "check:generated": "node scripts/generate.mjs --check",
     "check:corpus": "node conformance/validate.mjs",
-    "generate": "node scripts/generate.mjs"
+    "generate": "node scripts/generate.mjs",
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "test:typescript": "npm run build:runtime && tsc -p bindings/typescript/tsconfig.json && node --test \"bindings/typescript/test/*.test.ts\"",
+    "prepack": "npm run build:runtime"
   },
   "dependencies": {
     "@informalsystems/quint": "0.33.0"
   },
   "devDependencies": {
-    "ajv": "8.20.0"
+    "@types/node": "22.20.5",
+    "ajv": "8.20.0",
+    "typescript": "7.0.2"
   },
   "bundleDependencies": [
     "@informalsystems/quint"
