@@ -56,6 +56,12 @@ One entry per scenario. The bank tutorial's looks like this, abbreviated:
 
 In the real file each expression is a small tree (`{"kind": "call", "operator": "igt", ...}`), not text, and lists the state paths it reads. The file also carries a digest of the model sources and the vocabulary of actions and operators used.
 
+The same guards and next-state obligations recur across steps and scenarios, so the file stores each distinct list once (schema version 3):
+
+1. **`assertionLists`**: a top-level array of obligation lists, in order of first appearance. The same input always yields the same bytes.
+2. **`guardList` and `nextList`**: an action step names its lists by index into `assertionLists`. A step with no guards or no next-state obligations omits the field. Observation steps keep their `assertions` inline.
+3. **Version 2** files, which write `guards` and `next` inline on each step, still load. The runtimes resolve references when they read the file, so evaluation is the same for both. An index outside `assertionLists`, or a mix of the two forms, is an error naming the field.
+
 ## 3. What is in `src/generated_refinement.rs`
 
 1. **`Implementation`**, a trait with:

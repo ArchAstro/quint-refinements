@@ -4,7 +4,7 @@ Check a TypeScript implementation against a [Quint](https://quint.sh/) model.
 
 This is the runtime. It drives your implementation through scenarios generated
 from the model and evaluates every generated guard and next-state obligation
-against the snapshots your code returns. It reads the same schema-v2 artifact
+against the snapshots your code returns. It reads the same schema-v2 and v3 artifacts
 as the Rust crate and the Go module, and reports the same obligations and the
 same divergence messages. It has no dependencies, and Quint integers are
 `bigint`.

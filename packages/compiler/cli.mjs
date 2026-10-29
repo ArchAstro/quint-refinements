@@ -1397,12 +1397,12 @@ export function compileProject(sourceArgument, options = {}) {
     fullyRefinedRuns: project.fullyRefinedRuns,
   });
   const generatedDependencies = new Set();
-  for (const scenario of artifact.scenarios) {
-    for (const step of scenario.steps) {
-      for (const assertion of [...(step.guards ?? []), ...(step.next ?? []), ...(step.assertions ?? [])]) {
-        (assertion.dependencies ?? []).forEach(dependency => generatedDependencies.add(dependency));
-      }
-    }
+  const allAssertions = [
+    ...artifact.assertionLists.flat(),
+    ...artifact.scenarios.flatMap(scenario => scenario.steps).flatMap(step => step.assertions ?? []),
+  ];
+  for (const assertion of allAssertions) {
+    (assertion.dependencies ?? []).forEach(dependency => generatedDependencies.add(dependency));
   }
   project.retrieve = [...generatedDependencies].sort();
   project.paths = project.retrieve.filter(dependency => dependency.startsWith("path:"));

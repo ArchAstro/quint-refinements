@@ -5,6 +5,21 @@ and the Rust, Go and TypeScript runtimes share one version.
 
 ## Unreleased
 
+### Changed
+
+- Artifact schema version 3: the artifact stores each distinct list of guards
+  or next-state obligations once in a top-level `assertionLists`, and an action
+  step names its lists by index with `guardList` and `nextList`. Steps used to
+  repeat their full expression trees, so a model with many scenarios produced
+  an artifact of hundreds of megabytes that held a few dozen distinct lists.
+  The order is first appearance, so output is deterministic. The compiler
+  emits version 3 for both `--compact` and indented output.
+- The Rust, Go and TypeScript runtimes read versions 2 and 3, resolving
+  references at load so evaluation is unchanged. They reject an index outside
+  `assertionLists`, a file that mixes the inline and indexed forms, and a schema
+  version they do not know. `conformance/cases/bank_withdraw_v2` keeps a v2
+  artifact in the corpus.
+
 ### Fixed
 
 - A map in the observed state is taken as the implementation reports it: an
