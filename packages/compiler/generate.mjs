@@ -38,7 +38,42 @@ const supportedNormalizedExpressionOperatorSet = new Set(
   supportedNormalizedExpressionOperators,
 );
 
-export const schemaVersion = 2;
+export const schemaVersion = 3;
+
+// Steps repeat the same guards and next-state obligations: a model's few
+// actions are replayed across many scenarios. Schema v3 stores each distinct
+// list once in `assertionLists`, in order of first appearance, and a step
+// names its lists by index (`guardList`, `nextList`). Empty lists are omitted.
+export function shareAssertionLists(scenarios) {
+  const assertionLists = [];
+  const indexByContent = new Map();
+  const intern = list => {
+    const content = JSON.stringify(list);
+    let index = indexByContent.get(content);
+    if (index === undefined) {
+      index = assertionLists.length;
+      indexByContent.set(content, index);
+      assertionLists.push(list);
+    }
+    return index;
+  };
+  const shared = scenarios.map(scenario => ({
+    ...scenario,
+    steps: scenario.steps.map(step => {
+      const { guards, next, ...rest } = step;
+      const out = { ...rest };
+      if (guards?.length > 0) {
+        out.guardList = intern(guards);
+      }
+      if (next?.length > 0) {
+        out.nextList = intern(next);
+      }
+      return out;
+    }),
+  }));
+  return { assertionLists, scenarios: shared };
+}
+
 
 export let defaultAppConfig;
 
@@ -1701,6 +1736,7 @@ export function generateConformanceTraces({
       "runtime observation dependency vocabulary",
       app.runtimeObservationDependencyDigest,
     );
+    const shared = shareAssertionLists(scenarios);
     return {
       schemaVersion,
       modelDigest: digestModel(specDir),
@@ -1714,7 +1750,8 @@ export function generateConformanceTraces({
         runtimeObservationDependencyDigest,
       },
       fixtures,
-      scenarios,
+      assertionLists: shared.assertionLists,
+      scenarios: shared.scenarios,
     };
   } finally {
     fs.rmSync(temporaryDir, { recursive: true, force: true });

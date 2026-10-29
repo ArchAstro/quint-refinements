@@ -58,7 +58,7 @@ Both are replaced on every run. `src/main.rs` is written only when it does not e
 | `--go <path>` | off | Write a Go adapter instead of the Rust one. Pass `--rust` as well to write both. The artifact must sit in the adapter's directory, because Go embeds it from there. |
 | `--go-package <name>` | the adapter's directory name | The Go package clause. |
 | `--typescript <path>` | off | Write a TypeScript adapter instead of the Rust one. Pass `--rust` as well to write both. The adapter reads the artifact from a path relative to itself, so the artifact may sit anywhere. |
-| `--compact` | off | Write the artifact as one line. Each step inlines its obligations, so a large model's indented artifact is mostly whitespace. Pass it to `--check` too: the check compares bytes. |
+| `--compact` | off | Write the artifact as one line. The artifact stores each distinct list of obligations once, but an indented large model is still mostly whitespace. Pass it to `--check` too: the check compares bytes. |
 
 ### Output
 

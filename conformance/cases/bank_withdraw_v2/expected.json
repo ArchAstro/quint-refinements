@@ -1,0 +1,15 @@
+{
+  "scenario": "bank.withdrawRun",
+  "primitiveCalls": [
+    {
+      "primitive": "bank.withdraw",
+      "actions": ["withdraw"],
+      "arguments": [4]
+    }
+  ],
+  "evaluatedObligations": 3,
+  "finalState": {
+    "balance": 6
+  }
+}
+

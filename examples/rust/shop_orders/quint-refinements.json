@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "modelDigest": "sha256:1f6233f24224c90ad065ee9f0511f5f7c244651358c6457d55ea0fc3d205a300",
   "vocabulary": {
     "actions": [
@@ -99,6 +99,740 @@
       }
     }
   },
+  "assertionLists": [
+    [
+      {
+        "scope": "runtime",
+        "expression": {
+          "kind": "call",
+          "operator": "not",
+          "arguments": [
+            {
+              "kind": "call",
+              "operator": "contains",
+              "arguments": [
+                {
+                  "kind": "call",
+                  "operator": "field",
+                  "arguments": [
+                    {
+                      "kind": "name",
+                      "value": "state"
+                    },
+                    {
+                      "kind": "str",
+                      "value": "paid"
+                    }
+                  ]
+                },
+                {
+                  "kind": "call",
+                  "operator": "field",
+                  "arguments": [
+                    {
+                      "kind": "name",
+                      "value": "coffee"
+                    },
+                    {
+                      "kind": "str",
+                      "value": "id"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "dependencies": [
+          "name:coffee",
+          "name:state",
+          "operator:contains",
+          "operator:field",
+          "operator:not",
+          "path:coffee.id",
+          "path:state.paid"
+        ]
+      }
+    ],
+    [
+      {
+        "scope": "runtime",
+        "expression": {
+          "kind": "call",
+          "operator": "assign",
+          "arguments": [
+            {
+              "kind": "name",
+              "value": "state"
+            },
+            {
+              "kind": "call",
+              "operator": "Rec",
+              "arguments": [
+                {
+                  "kind": "str",
+                  "value": "paid"
+                },
+                {
+                  "kind": "call",
+                  "operator": "union",
+                  "arguments": [
+                    {
+                      "kind": "call",
+                      "operator": "field",
+                      "arguments": [
+                        {
+                          "kind": "name",
+                          "value": "state"
+                        },
+                        {
+                          "kind": "str",
+                          "value": "paid"
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "call",
+                      "operator": "Set",
+                      "arguments": [
+                        {
+                          "kind": "call",
+                          "operator": "field",
+                          "arguments": [
+                            {
+                              "kind": "name",
+                              "value": "coffee"
+                            },
+                            {
+                              "kind": "str",
+                              "value": "id"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "str",
+                  "value": "revenue"
+                },
+                {
+                  "kind": "call",
+                  "operator": "iadd",
+                  "arguments": [
+                    {
+                      "kind": "call",
+                      "operator": "field",
+                      "arguments": [
+                        {
+                          "kind": "name",
+                          "value": "state"
+                        },
+                        {
+                          "kind": "str",
+                          "value": "revenue"
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "call",
+                      "operator": "field",
+                      "arguments": [
+                        {
+                          "kind": "name",
+                          "value": "coffee"
+                        },
+                        {
+                          "kind": "str",
+                          "value": "total"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "dependencies": [
+          "name:coffee",
+          "name:state",
+          "operator:Rec",
+          "operator:Set",
+          "operator:assign",
+          "operator:field",
+          "operator:iadd",
+          "operator:union",
+          "path:coffee.id",
+          "path:coffee.total",
+          "path:state.paid",
+          "path:state.revenue"
+        ]
+      }
+    ],
+    [
+      {
+        "scope": "runtime",
+        "expression": {
+          "kind": "call",
+          "operator": "not",
+          "arguments": [
+            {
+              "kind": "call",
+              "operator": "contains",
+              "arguments": [
+                {
+                  "kind": "call",
+                  "operator": "field",
+                  "arguments": [
+                    {
+                      "kind": "name",
+                      "value": "state"
+                    },
+                    {
+                      "kind": "str",
+                      "value": "paid"
+                    }
+                  ]
+                },
+                {
+                  "kind": "call",
+                  "operator": "field",
+                  "arguments": [
+                    {
+                      "kind": "name",
+                      "value": "bagel"
+                    },
+                    {
+                      "kind": "str",
+                      "value": "id"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "dependencies": [
+          "name:bagel",
+          "name:state",
+          "operator:contains",
+          "operator:field",
+          "operator:not",
+          "path:bagel.id",
+          "path:state.paid"
+        ]
+      }
+    ],
+    [
+      {
+        "scope": "runtime",
+        "expression": {
+          "kind": "call",
+          "operator": "assign",
+          "arguments": [
+            {
+              "kind": "name",
+              "value": "state"
+            },
+            {
+              "kind": "call",
+              "operator": "Rec",
+              "arguments": [
+                {
+                  "kind": "str",
+                  "value": "paid"
+                },
+                {
+                  "kind": "call",
+                  "operator": "union",
+                  "arguments": [
+                    {
+                      "kind": "call",
+                      "operator": "field",
+                      "arguments": [
+                        {
+                          "kind": "name",
+                          "value": "state"
+                        },
+                        {
+                          "kind": "str",
+                          "value": "paid"
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "call",
+                      "operator": "Set",
+                      "arguments": [
+                        {
+                          "kind": "call",
+                          "operator": "field",
+                          "arguments": [
+                            {
+                              "kind": "name",
+                              "value": "bagel"
+                            },
+                            {
+                              "kind": "str",
+                              "value": "id"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "str",
+                  "value": "revenue"
+                },
+                {
+                  "kind": "call",
+                  "operator": "iadd",
+                  "arguments": [
+                    {
+                      "kind": "call",
+                      "operator": "field",
+                      "arguments": [
+                        {
+                          "kind": "name",
+                          "value": "state"
+                        },
+                        {
+                          "kind": "str",
+                          "value": "revenue"
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "call",
+                      "operator": "field",
+                      "arguments": [
+                        {
+                          "kind": "name",
+                          "value": "bagel"
+                        },
+                        {
+                          "kind": "str",
+                          "value": "total"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "dependencies": [
+          "name:bagel",
+          "name:state",
+          "operator:Rec",
+          "operator:Set",
+          "operator:assign",
+          "operator:field",
+          "operator:iadd",
+          "operator:union",
+          "path:bagel.id",
+          "path:bagel.total",
+          "path:state.paid",
+          "path:state.revenue"
+        ]
+      }
+    ],
+    [
+      {
+        "scope": "runtime",
+        "expression": {
+          "kind": "call",
+          "operator": "ite",
+          "arguments": [
+            {
+              "kind": "call",
+              "operator": "contains",
+              "arguments": [
+                {
+                  "kind": "call",
+                  "operator": "field",
+                  "arguments": [
+                    {
+                      "kind": "name",
+                      "value": "state"
+                    },
+                    {
+                      "kind": "str",
+                      "value": "paid"
+                    }
+                  ]
+                },
+                {
+                  "kind": "call",
+                  "operator": "field",
+                  "arguments": [
+                    {
+                      "kind": "name",
+                      "value": "coffee"
+                    },
+                    {
+                      "kind": "str",
+                      "value": "id"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "call",
+              "operator": "assign",
+              "arguments": [
+                {
+                  "kind": "name",
+                  "value": "state"
+                },
+                {
+                  "kind": "call",
+                  "operator": "Rec",
+                  "arguments": [
+                    {
+                      "kind": "str",
+                      "value": "paid"
+                    },
+                    {
+                      "kind": "call",
+                      "operator": "exclude",
+                      "arguments": [
+                        {
+                          "kind": "call",
+                          "operator": "field",
+                          "arguments": [
+                            {
+                              "kind": "name",
+                              "value": "state"
+                            },
+                            {
+                              "kind": "str",
+                              "value": "paid"
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "call",
+                          "operator": "Set",
+                          "arguments": [
+                            {
+                              "kind": "call",
+                              "operator": "field",
+                              "arguments": [
+                                {
+                                  "kind": "name",
+                                  "value": "coffee"
+                                },
+                                {
+                                  "kind": "str",
+                                  "value": "id"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "str",
+                      "value": "revenue"
+                    },
+                    {
+                      "kind": "call",
+                      "operator": "isub",
+                      "arguments": [
+                        {
+                          "kind": "call",
+                          "operator": "field",
+                          "arguments": [
+                            {
+                              "kind": "name",
+                              "value": "state"
+                            },
+                            {
+                              "kind": "str",
+                              "value": "revenue"
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "call",
+                          "operator": "field",
+                          "arguments": [
+                            {
+                              "kind": "name",
+                              "value": "coffee"
+                            },
+                            {
+                              "kind": "str",
+                              "value": "total"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "call",
+              "operator": "assign",
+              "arguments": [
+                {
+                  "kind": "name",
+                  "value": "state"
+                },
+                {
+                  "kind": "name",
+                  "value": "state"
+                }
+              ]
+            }
+          ]
+        },
+        "dependencies": [
+          "name:coffee",
+          "name:state",
+          "operator:Rec",
+          "operator:Set",
+          "operator:assign",
+          "operator:contains",
+          "operator:exclude",
+          "operator:field",
+          "operator:isub",
+          "operator:ite",
+          "path:coffee.id",
+          "path:coffee.total",
+          "path:state.paid",
+          "path:state.revenue"
+        ]
+      }
+    ],
+    [
+      {
+        "scope": "runtime",
+        "expression": {
+          "kind": "call",
+          "operator": "assign",
+          "arguments": [
+            {
+              "kind": "name",
+              "value": "state"
+            },
+            {
+              "kind": "call",
+              "operator": "Rec",
+              "arguments": [
+                {
+                  "kind": "str",
+                  "value": "paid"
+                },
+                {
+                  "kind": "call",
+                  "operator": "Set",
+                  "arguments": []
+                },
+                {
+                  "kind": "str",
+                  "value": "revenue"
+                },
+                {
+                  "kind": "int",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "dependencies": [
+          "name:state",
+          "operator:Rec",
+          "operator:Set",
+          "operator:assign"
+        ]
+      }
+    ],
+    [
+      {
+        "scope": "runtime",
+        "expression": {
+          "kind": "call",
+          "operator": "ite",
+          "arguments": [
+            {
+              "kind": "call",
+              "operator": "contains",
+              "arguments": [
+                {
+                  "kind": "call",
+                  "operator": "field",
+                  "arguments": [
+                    {
+                      "kind": "name",
+                      "value": "state"
+                    },
+                    {
+                      "kind": "str",
+                      "value": "paid"
+                    }
+                  ]
+                },
+                {
+                  "kind": "call",
+                  "operator": "field",
+                  "arguments": [
+                    {
+                      "kind": "name",
+                      "value": "bagel"
+                    },
+                    {
+                      "kind": "str",
+                      "value": "id"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "call",
+              "operator": "assign",
+              "arguments": [
+                {
+                  "kind": "name",
+                  "value": "state"
+                },
+                {
+                  "kind": "call",
+                  "operator": "Rec",
+                  "arguments": [
+                    {
+                      "kind": "str",
+                      "value": "paid"
+                    },
+                    {
+                      "kind": "call",
+                      "operator": "exclude",
+                      "arguments": [
+                        {
+                          "kind": "call",
+                          "operator": "field",
+                          "arguments": [
+                            {
+                              "kind": "name",
+                              "value": "state"
+                            },
+                            {
+                              "kind": "str",
+                              "value": "paid"
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "call",
+                          "operator": "Set",
+                          "arguments": [
+                            {
+                              "kind": "call",
+                              "operator": "field",
+                              "arguments": [
+                                {
+                                  "kind": "name",
+                                  "value": "bagel"
+                                },
+                                {
+                                  "kind": "str",
+                                  "value": "id"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "str",
+                      "value": "revenue"
+                    },
+                    {
+                      "kind": "call",
+                      "operator": "isub",
+                      "arguments": [
+                        {
+                          "kind": "call",
+                          "operator": "field",
+                          "arguments": [
+                            {
+                              "kind": "name",
+                              "value": "state"
+                            },
+                            {
+                              "kind": "str",
+                              "value": "revenue"
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "call",
+                          "operator": "field",
+                          "arguments": [
+                            {
+                              "kind": "name",
+                              "value": "bagel"
+                            },
+                            {
+                              "kind": "str",
+                              "value": "total"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "call",
+              "operator": "assign",
+              "arguments": [
+                {
+                  "kind": "name",
+                  "value": "state"
+                },
+                {
+                  "kind": "name",
+                  "value": "state"
+                }
+              ]
+            }
+          ]
+        },
+        "dependencies": [
+          "name:bagel",
+          "name:state",
+          "operator:Rec",
+          "operator:Set",
+          "operator:assign",
+          "operator:contains",
+          "operator:exclude",
+          "operator:field",
+          "operator:isub",
+          "operator:ite",
+          "path:bagel.id",
+          "path:bagel.total",
+          "path:state.paid",
+          "path:state.revenue"
+        ]
+      }
+    ]
+  ],
   "scenarios": [
     {
       "source": "model.qnt",
@@ -125,177 +859,8 @@
               "value": "coffee"
             }
           ],
-          "guards": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "not",
-                "arguments": [
-                  {
-                    "kind": "call",
-                    "operator": "contains",
-                    "arguments": [
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "state"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "paid"
-                          }
-                        ]
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "coffee"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "id"
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:coffee",
-                "name:state",
-                "operator:contains",
-                "operator:field",
-                "operator:not",
-                "path:coffee.id",
-                "path:state.paid"
-              ]
-            }
-          ],
-          "next": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "assign",
-                "arguments": [
-                  {
-                    "kind": "name",
-                    "value": "state"
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "Rec",
-                    "arguments": [
-                      {
-                        "kind": "str",
-                        "value": "paid"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "union",
-                        "arguments": [
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "state"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "paid"
-                              }
-                            ]
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "Set",
-                            "arguments": [
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "coffee"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "id"
-                                  }
-                                ]
-                              }
-                            ]
-                          }
-                        ]
-                      },
-                      {
-                        "kind": "str",
-                        "value": "revenue"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "iadd",
-                        "arguments": [
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "state"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "revenue"
-                              }
-                            ]
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "coffee"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "total"
-                              }
-                            ]
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:coffee",
-                "name:state",
-                "operator:Rec",
-                "operator:Set",
-                "operator:assign",
-                "operator:field",
-                "operator:iadd",
-                "operator:union",
-                "path:coffee.id",
-                "path:coffee.total",
-                "path:state.paid",
-                "path:state.revenue"
-              ]
-            }
-          ]
+          "guardList": 0,
+          "nextList": 1
         },
         {
           "index": 2,
@@ -307,177 +872,8 @@
               "value": "bagel"
             }
           ],
-          "guards": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "not",
-                "arguments": [
-                  {
-                    "kind": "call",
-                    "operator": "contains",
-                    "arguments": [
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "state"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "paid"
-                          }
-                        ]
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "bagel"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "id"
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:bagel",
-                "name:state",
-                "operator:contains",
-                "operator:field",
-                "operator:not",
-                "path:bagel.id",
-                "path:state.paid"
-              ]
-            }
-          ],
-          "next": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "assign",
-                "arguments": [
-                  {
-                    "kind": "name",
-                    "value": "state"
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "Rec",
-                    "arguments": [
-                      {
-                        "kind": "str",
-                        "value": "paid"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "union",
-                        "arguments": [
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "state"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "paid"
-                              }
-                            ]
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "Set",
-                            "arguments": [
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "bagel"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "id"
-                                  }
-                                ]
-                              }
-                            ]
-                          }
-                        ]
-                      },
-                      {
-                        "kind": "str",
-                        "value": "revenue"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "iadd",
-                        "arguments": [
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "state"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "revenue"
-                              }
-                            ]
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "bagel"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "total"
-                              }
-                            ]
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:bagel",
-                "name:state",
-                "operator:Rec",
-                "operator:Set",
-                "operator:assign",
-                "operator:field",
-                "operator:iadd",
-                "operator:union",
-                "path:bagel.id",
-                "path:bagel.total",
-                "path:state.paid",
-                "path:state.revenue"
-              ]
-            }
-          ]
+          "guardList": 2,
+          "nextList": 3
         },
         {
           "index": 3,
@@ -554,177 +950,8 @@
               "value": "coffee"
             }
           ],
-          "guards": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "not",
-                "arguments": [
-                  {
-                    "kind": "call",
-                    "operator": "contains",
-                    "arguments": [
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "state"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "paid"
-                          }
-                        ]
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "coffee"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "id"
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:coffee",
-                "name:state",
-                "operator:contains",
-                "operator:field",
-                "operator:not",
-                "path:coffee.id",
-                "path:state.paid"
-              ]
-            }
-          ],
-          "next": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "assign",
-                "arguments": [
-                  {
-                    "kind": "name",
-                    "value": "state"
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "Rec",
-                    "arguments": [
-                      {
-                        "kind": "str",
-                        "value": "paid"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "union",
-                        "arguments": [
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "state"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "paid"
-                              }
-                            ]
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "Set",
-                            "arguments": [
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "coffee"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "id"
-                                  }
-                                ]
-                              }
-                            ]
-                          }
-                        ]
-                      },
-                      {
-                        "kind": "str",
-                        "value": "revenue"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "iadd",
-                        "arguments": [
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "state"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "revenue"
-                              }
-                            ]
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "field",
-                            "arguments": [
-                              {
-                                "kind": "name",
-                                "value": "coffee"
-                              },
-                              {
-                                "kind": "str",
-                                "value": "total"
-                              }
-                            ]
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:coffee",
-                "name:state",
-                "operator:Rec",
-                "operator:Set",
-                "operator:assign",
-                "operator:field",
-                "operator:iadd",
-                "operator:union",
-                "path:coffee.id",
-                "path:coffee.total",
-                "path:state.paid",
-                "path:state.revenue"
-              ]
-            }
-          ]
+          "guardList": 0,
+          "nextList": 1
         },
         {
           "index": 2,
@@ -736,223 +963,8 @@
               "value": "coffee"
             }
           ],
-          "guards": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "ite",
-                "arguments": [
-                  {
-                    "kind": "call",
-                    "operator": "contains",
-                    "arguments": [
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "state"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "paid"
-                          }
-                        ]
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "coffee"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "id"
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "assign",
-                    "arguments": [
-                      {
-                        "kind": "name",
-                        "value": "state"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "Rec",
-                        "arguments": [
-                          {
-                            "kind": "str",
-                            "value": "paid"
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "exclude",
-                            "arguments": [
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "state"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "paid"
-                                  }
-                                ]
-                              },
-                              {
-                                "kind": "call",
-                                "operator": "Set",
-                                "arguments": [
-                                  {
-                                    "kind": "call",
-                                    "operator": "field",
-                                    "arguments": [
-                                      {
-                                        "kind": "name",
-                                        "value": "coffee"
-                                      },
-                                      {
-                                        "kind": "str",
-                                        "value": "id"
-                                      }
-                                    ]
-                                  }
-                                ]
-                              }
-                            ]
-                          },
-                          {
-                            "kind": "str",
-                            "value": "revenue"
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "isub",
-                            "arguments": [
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "state"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "revenue"
-                                  }
-                                ]
-                              },
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "coffee"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "total"
-                                  }
-                                ]
-                              }
-                            ]
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "assign",
-                    "arguments": [
-                      {
-                        "kind": "name",
-                        "value": "state"
-                      },
-                      {
-                        "kind": "name",
-                        "value": "state"
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:coffee",
-                "name:state",
-                "operator:Rec",
-                "operator:Set",
-                "operator:assign",
-                "operator:contains",
-                "operator:exclude",
-                "operator:field",
-                "operator:isub",
-                "operator:ite",
-                "path:coffee.id",
-                "path:coffee.total",
-                "path:state.paid",
-                "path:state.revenue"
-              ]
-            }
-          ],
-          "next": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "assign",
-                "arguments": [
-                  {
-                    "kind": "name",
-                    "value": "state"
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "Rec",
-                    "arguments": [
-                      {
-                        "kind": "str",
-                        "value": "paid"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "Set",
-                        "arguments": []
-                      },
-                      {
-                        "kind": "str",
-                        "value": "revenue"
-                      },
-                      {
-                        "kind": "int",
-                        "value": 0
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:state",
-                "operator:Rec",
-                "operator:Set",
-                "operator:assign"
-              ]
-            }
-          ]
+          "guardList": 4,
+          "nextList": 5
         },
         {
           "index": 3,
@@ -964,223 +976,8 @@
               "value": "bagel"
             }
           ],
-          "guards": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "ite",
-                "arguments": [
-                  {
-                    "kind": "call",
-                    "operator": "contains",
-                    "arguments": [
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "state"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "paid"
-                          }
-                        ]
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "field",
-                        "arguments": [
-                          {
-                            "kind": "name",
-                            "value": "bagel"
-                          },
-                          {
-                            "kind": "str",
-                            "value": "id"
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "assign",
-                    "arguments": [
-                      {
-                        "kind": "name",
-                        "value": "state"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "Rec",
-                        "arguments": [
-                          {
-                            "kind": "str",
-                            "value": "paid"
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "exclude",
-                            "arguments": [
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "state"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "paid"
-                                  }
-                                ]
-                              },
-                              {
-                                "kind": "call",
-                                "operator": "Set",
-                                "arguments": [
-                                  {
-                                    "kind": "call",
-                                    "operator": "field",
-                                    "arguments": [
-                                      {
-                                        "kind": "name",
-                                        "value": "bagel"
-                                      },
-                                      {
-                                        "kind": "str",
-                                        "value": "id"
-                                      }
-                                    ]
-                                  }
-                                ]
-                              }
-                            ]
-                          },
-                          {
-                            "kind": "str",
-                            "value": "revenue"
-                          },
-                          {
-                            "kind": "call",
-                            "operator": "isub",
-                            "arguments": [
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "state"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "revenue"
-                                  }
-                                ]
-                              },
-                              {
-                                "kind": "call",
-                                "operator": "field",
-                                "arguments": [
-                                  {
-                                    "kind": "name",
-                                    "value": "bagel"
-                                  },
-                                  {
-                                    "kind": "str",
-                                    "value": "total"
-                                  }
-                                ]
-                              }
-                            ]
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "assign",
-                    "arguments": [
-                      {
-                        "kind": "name",
-                        "value": "state"
-                      },
-                      {
-                        "kind": "name",
-                        "value": "state"
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:bagel",
-                "name:state",
-                "operator:Rec",
-                "operator:Set",
-                "operator:assign",
-                "operator:contains",
-                "operator:exclude",
-                "operator:field",
-                "operator:isub",
-                "operator:ite",
-                "path:bagel.id",
-                "path:bagel.total",
-                "path:state.paid",
-                "path:state.revenue"
-              ]
-            }
-          ],
-          "next": [
-            {
-              "scope": "runtime",
-              "expression": {
-                "kind": "call",
-                "operator": "assign",
-                "arguments": [
-                  {
-                    "kind": "name",
-                    "value": "state"
-                  },
-                  {
-                    "kind": "call",
-                    "operator": "Rec",
-                    "arguments": [
-                      {
-                        "kind": "str",
-                        "value": "paid"
-                      },
-                      {
-                        "kind": "call",
-                        "operator": "Set",
-                        "arguments": []
-                      },
-                      {
-                        "kind": "str",
-                        "value": "revenue"
-                      },
-                      {
-                        "kind": "int",
-                        "value": 0
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependencies": [
-                "name:state",
-                "operator:Rec",
-                "operator:Set",
-                "operator:assign"
-              ]
-            }
-          ]
+          "guardList": 6,
+          "nextList": 5
         },
         {
           "index": 4,

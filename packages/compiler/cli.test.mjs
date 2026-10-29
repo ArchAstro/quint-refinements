@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { compileProject, createProject, goMethodName, typescriptMethodName } from "./cli.mjs";
-import { defineConformanceApp, generateConformanceTraces } from "./generate.mjs";
+import { defineConformanceApp, generateConformanceTraces, shareAssertionLists } from "./generate.mjs";
 
 const compilerRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(compilerRoot, "..", "..");
@@ -116,6 +116,47 @@ test("compile derives the whole integration from the Quint AST", () => {
 
     compileProject("model.qnt", { cwd: directory, check: true });
   });
+});
+
+test("an artifact stores each distinct guard and next list once, in order of first appearance", () => {
+  withTemporaryDirectory(directory => {
+    const { artifact } = compileShop(directory);
+
+    assert.equal(artifact.schemaVersion, 3);
+    const steps = artifact.scenarios.flatMap(scenario => scenario.steps);
+    const actions = steps.filter(step => step.kind === "action");
+    assert.ok(steps.every(step => !("guards" in step) && !("next" in step)));
+    const references = actions.flatMap(step => [step.guardList, step.nextList]).filter(index => index !== undefined);
+    assert.ok(references.every(index => Number.isInteger(index) && index < artifact.assertionLists.length));
+    // First appearance: each new index is the next unused one.
+    let highest = -1;
+    for (const index of references) {
+      assert.ok(index <= highest + 1);
+      highest = Math.max(highest, index);
+    }
+    assert.equal(highest, artifact.assertionLists.length - 1);
+    const distinct = new Set(artifact.assertionLists.map(list => JSON.stringify(list)));
+    assert.equal(distinct.size, artifact.assertionLists.length);
+  });
+});
+
+test("shareAssertionLists stores a repeated list once and numbers lists by first appearance", () => {
+  const assertion = value => ({ scope: "runtime", expression: { kind: "int", value }, dependencies: [] });
+  const [a, b] = [[assertion(1)], [assertion(2)]];
+  const action = (guards, next) => ({ kind: "action", index: 1, action: "go", arguments: [], guards, next });
+  const { assertionLists, scenarios } = shareAssertionLists([
+    { name: "one", steps: [{ kind: "init", index: 0 }, action(a, b), action([], b)] },
+    { name: "two", steps: [action(structuredClone(b), structuredClone(a)), { kind: "observe", index: 2, assertions: a }] },
+  ]);
+
+  assert.deepEqual(assertionLists, [a, b]);
+  assert.deepEqual(scenarios[0].steps, [
+    { kind: "init", index: 0 },
+    { kind: "action", index: 1, action: "go", arguments: [], guardList: 0, nextList: 1 },
+    { kind: "action", index: 1, action: "go", arguments: [], nextList: 1 },
+  ]);
+  assert.deepEqual(scenarios[1].steps[0], { kind: "action", index: 1, action: "go", arguments: [], guardList: 1, nextList: 0 });
+  assert.deepEqual(scenarios[1].steps[1].assertions, a);
 });
 
 test("--compact writes the same artifact on one line, and --check compares that", () => {
@@ -276,10 +317,10 @@ test("every generated obligation is checked at runtime", () => {
   withTemporaryDirectory(directory => {
     const { artifact } = compileShop(directory);
 
-    const scopes = artifact.scenarios.flatMap(scenario => scenario.steps).flatMap(step =>
-      [...(step.guards ?? []), ...(step.next ?? []), ...(step.assertions ?? [])]
-        .map(assertion => assertion.scope)
-    );
+    const scopes = [
+      ...artifact.assertionLists.flat(),
+      ...artifact.scenarios.flatMap(scenario => scenario.steps).flatMap(step => step.assertions ?? []),
+    ].map(assertion => assertion.scope);
     assert.ok(scopes.length > 0);
     assert.deepEqual([...new Set(scopes)], ["runtime"]);
   });
@@ -294,8 +335,9 @@ test("an action without a plain assignment is held to the state Quint reached", 
       .find(scenario => scenario.name === "refundRun").steps
       .filter(step => step.action === "refund");
     const expectedStates = refunds.map(step => {
-      assert.equal(step.next.length, 1);
-      const { operator, arguments: [target, value] } = step.next[0].expression;
+      const next = artifact.assertionLists[step.nextList];
+      assert.equal(next.length, 1);
+      const { operator, arguments: [target, value] } = next[0].expression;
       assert.equal(operator, "assign");
       assert.deepEqual(target, { kind: "name", value: "state" });
       return value;

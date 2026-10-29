@@ -5,9 +5,21 @@ use serde_json::Value;
 
 use crate::Error;
 
-/// Frozen schema-v2 conformance artifact exported from the Quint model.
+/// Oldest artifact schema this crate reads: guards and next-state obligations
+/// are written inline on every step.
+const FIRST_SUPPORTED_SCHEMA: u32 = 2;
+/// Newest artifact schema this crate reads: steps name shared obligation lists
+/// by index into the artifact's `assertionLists`.
+const LATEST_SCHEMA: u32 = 3;
+
+/// Conformance artifact exported from the Quint model (schema v2 or v3).
+///
+/// Schema v3 stores each distinct list of obligations once in
+/// `assertionLists` and a step names its `guardList` and `nextList` by index.
+/// Loading resolves those references, so every step carries its own `guards`
+/// and `next` whichever schema the file used.
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(try_from = "RawConformanceArtifact")]
 pub struct ConformanceArtifact {
     /// Version of the generated artifact schema.
     pub schema_version: u32,
@@ -42,6 +54,163 @@ impl ConformanceArtifact {
             ));
         }
         Ok(artifact)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RawConformanceArtifact {
+    schema_version: u32,
+    model_digest: String,
+    vocabulary: ArtifactVocabulary,
+    fixtures: BTreeMap<String, BTreeMap<String, Value>>,
+    #[serde(default)]
+    assertion_lists: Option<Vec<Vec<ArtifactAssertion>>>,
+    scenarios: Vec<RawScenario>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RawScenario {
+    source: String,
+    module: String,
+    fixture_namespace: String,
+    name: String,
+    required_capabilities: Vec<String>,
+    #[serde(default)]
+    initial_state: Option<Value>,
+    steps: Vec<RawStep>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+enum RawStep {
+    Init {
+        index: usize,
+        action: String,
+        arguments: Vec<Value>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Action {
+        index: usize,
+        action: String,
+        arguments: Vec<Value>,
+        #[serde(default)]
+        guards: Option<Vec<ArtifactAssertion>>,
+        #[serde(default)]
+        next: Option<Vec<ArtifactAssertion>>,
+        #[serde(default)]
+        guard_list: Option<usize>,
+        #[serde(default)]
+        next_list: Option<usize>,
+    },
+    Observe {
+        index: usize,
+        assertions: Vec<ArtifactAssertion>,
+    },
+}
+
+impl TryFrom<RawConformanceArtifact> for ConformanceArtifact {
+    type Error = String;
+
+    fn try_from(raw: RawConformanceArtifact) -> Result<Self, String> {
+        let version = raw.schema_version;
+        if !(FIRST_SUPPORTED_SCHEMA..=LATEST_SCHEMA).contains(&version) {
+            return Err(format!(
+                "unsupported schema version {version}; this runtime reads versions \
+                 {FIRST_SUPPORTED_SCHEMA} to {LATEST_SCHEMA}"
+            ));
+        }
+        let shared = version >= 3;
+        if !shared && raw.assertion_lists.is_some() {
+            return Err(format!(
+                "`assertionLists` needs schema version 3, found {version}"
+            ));
+        }
+        let lists = raw.assertion_lists.unwrap_or_default();
+        let resolve = |reference: usize, field: &str| -> Result<Vec<ArtifactAssertion>, String> {
+            lists.get(reference).cloned().ok_or_else(|| {
+                format!(
+                    "`{field}` {reference} is out of range: the artifact has {} assertion lists",
+                    lists.len()
+                )
+            })
+        };
+        let mut scenarios = Vec::with_capacity(raw.scenarios.len());
+        for scenario in raw.scenarios {
+            let mut steps = Vec::with_capacity(scenario.steps.len());
+            for step in scenario.steps {
+                steps.push(match step {
+                    RawStep::Init {
+                        index,
+                        action,
+                        arguments,
+                    } => ArtifactStep::Init {
+                        index,
+                        action,
+                        arguments,
+                    },
+                    RawStep::Observe { index, assertions } => {
+                        ArtifactStep::Observe { index, assertions }
+                    }
+                    RawStep::Action {
+                        index,
+                        action,
+                        arguments,
+                        guards,
+                        next,
+                        guard_list,
+                        next_list,
+                    } => {
+                        if shared && (guards.is_some() || next.is_some()) {
+                            return Err(format!(
+                                "step {index} of {}.{} has inline `guards` or `next`; \
+                                 schema version {version} names them with `guardList` and `nextList`",
+                                scenario.module, scenario.name
+                            ));
+                        }
+                        if !shared && (guard_list.is_some() || next_list.is_some()) {
+                            return Err(format!(
+                                "step {index} of {}.{} uses `guardList` or `nextList`, \
+                                 which need schema version 3, found {version}",
+                                scenario.module, scenario.name
+                            ));
+                        }
+                        let guards = match guard_list {
+                            Some(reference) => resolve(reference, "guardList")?,
+                            None => guards.unwrap_or_default(),
+                        };
+                        let next = match next_list {
+                            Some(reference) => resolve(reference, "nextList")?,
+                            None => next.unwrap_or_default(),
+                        };
+                        ArtifactStep::Action {
+                            index,
+                            action,
+                            arguments,
+                            guards,
+                            next,
+                        }
+                    }
+                });
+            }
+            scenarios.push(ArtifactScenario {
+                source: scenario.source,
+                module: scenario.module,
+                fixture_namespace: scenario.fixture_namespace,
+                name: scenario.name,
+                required_capabilities: scenario.required_capabilities,
+                initial_state: scenario.initial_state,
+                steps,
+            });
+        }
+        Ok(Self {
+            schema_version: version,
+            model_digest: raw.model_digest,
+            vocabulary: raw.vocabulary,
+            fixtures: raw.fixtures,
+            scenarios,
+        })
     }
 }
 

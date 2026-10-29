@@ -10,7 +10,17 @@ import (
 //go:embed expression_vocabulary.json
 var expressionVocabularyJSON []byte
 
-// ConformanceArtifact is the frozen schema-v2 conformance artifact exported
+// Schema versions this package reads. Version 2 writes each step's guards and
+// next-state obligations inline; version 3 stores each distinct list once in
+// the artifact's assertionLists and a step names it by index (guardList,
+// nextList). Loading resolves those references, so steps carry Guards and Next
+// whichever version the file used.
+const (
+	firstSupportedSchema = 2
+	latestSchema         = 3
+)
+
+// ConformanceArtifact is the conformance artifact (schema v2 or v3) exported
 // from the Quint model.
 type ConformanceArtifact struct {
 	// SchemaVersion is the version of the generated artifact schema.
@@ -180,10 +190,31 @@ func decodeArtifact(data []byte) (*ConformanceArtifact, error) {
 	var vocabulary, scenarios json.RawMessage
 	root.read("vocabulary", true, &vocabulary)
 	root.read("fixtures", true, &artifact.Fixtures)
+	var rawLists []json.RawMessage
+	_, hasLists := root.fields["assertionLists"]
+	root.read("assertionLists", false, &rawLists)
 	root.read("scenarios", true, &scenarios)
 	if err := root.finish(); err != nil {
 		return nil, err
 	}
+	version := artifact.SchemaVersion
+	if version < firstSupportedSchema || version > latestSchema {
+		return nil, fmt.Errorf("unsupported schema version %d; this runtime reads versions %d to %d", version, firstSupportedSchema, latestSchema)
+	}
+	if hasLists && version < 3 {
+		return nil, fmt.Errorf("`assertionLists` needs schema version 3, found %d", version)
+	}
+	lists := make([][]ArtifactAssertion, len(rawLists))
+	for i, rawList := range rawLists {
+		var items []json.RawMessage
+		if err := json.Unmarshal(rawList, &items); err != nil {
+			return nil, fmt.Errorf("invalid field `assertionLists`: %v", err)
+		}
+		if lists[i], err = decodeAssertions(items); err != nil {
+			return nil, err
+		}
+	}
+	shared := &sharedLists{version: version, lists: lists}
 	if artifact.Vocabulary, err = decodeVocabulary(vocabulary); err != nil {
 		return nil, err
 	}
@@ -192,7 +223,7 @@ func decodeArtifact(data []byte) (*ConformanceArtifact, error) {
 		return nil, fmt.Errorf("invalid field `scenarios`: %v", err)
 	}
 	for _, rawScenario := range rawScenarios {
-		scenario, err := decodeScenario(rawScenario)
+		scenario, err := decodeScenario(rawScenario, shared)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +248,7 @@ func decodeVocabulary(raw json.RawMessage) (ArtifactVocabulary, error) {
 	return v, o.finish()
 }
 
-func decodeScenario(raw json.RawMessage) (ArtifactScenario, error) {
+func decodeScenario(raw json.RawMessage, shared *sharedLists) (ArtifactScenario, error) {
 	var s ArtifactScenario
 	o, err := newObject(raw, "scenario")
 	if err != nil {
@@ -235,7 +266,7 @@ func decodeScenario(raw json.RawMessage) (ArtifactScenario, error) {
 		return s, err
 	}
 	for _, rawStep := range steps {
-		step, err := decodeStep(rawStep)
+		step, err := decodeStep(rawStep, shared, s.Module+"."+s.Name)
 		if err != nil {
 			return s, err
 		}
@@ -244,7 +275,20 @@ func decodeScenario(raw json.RawMessage) (ArtifactScenario, error) {
 	return s, nil
 }
 
-func decodeStep(raw json.RawMessage) (ArtifactStep, error) {
+// sharedLists resolves schema-v3 list references.
+type sharedLists struct {
+	version uint32
+	lists   [][]ArtifactAssertion
+}
+
+func (l *sharedLists) resolve(field string, reference int) ([]ArtifactAssertion, error) {
+	if reference < 0 || reference >= len(l.lists) {
+		return nil, fmt.Errorf("`%s` %d is out of range: the artifact has %d assertion lists", field, reference, len(l.lists))
+	}
+	return slices.Clone(l.lists[reference]), nil
+}
+
+func decodeStep(raw json.RawMessage, shared *sharedLists, scenario string) (ArtifactStep, error) {
 	var step ArtifactStep
 	o, err := newObject(raw, "step")
 	if err != nil {
@@ -256,6 +300,8 @@ func decodeStep(raw json.RawMessage) (ArtifactStep, error) {
 	}
 	step.Kind = StepKind(kind)
 	var guards, next, assertions []json.RawMessage
+	var guardList, nextList int
+	var hasInline, hasGuardList, hasNextList bool
 	switch step.Kind {
 	case StepInit:
 		o.read("index", true, &step.Index)
@@ -267,6 +313,9 @@ func decodeStep(raw json.RawMessage) (ArtifactStep, error) {
 		o.read("arguments", true, &step.Arguments)
 		o.read("guards", false, &guards)
 		o.read("next", false, &next)
+		hasInline = guards != nil || next != nil
+		hasGuardList = o.read("guardList", false, &guardList)
+		hasNextList = o.read("nextList", false, &nextList)
 	case StepObserve:
 		o.read("index", true, &step.Index)
 		o.read("assertions", true, &assertions)
@@ -276,10 +325,26 @@ func decodeStep(raw json.RawMessage) (ArtifactStep, error) {
 	if err := o.finish(); err != nil {
 		return step, err
 	}
-	if step.Guards, err = decodeAssertions(guards); err != nil {
+	if shared.version >= 3 && hasInline {
+		return step, fmt.Errorf("step %d of %s has inline `guards` or `next`; schema version %d names them with `guardList` and `nextList`", step.Index, scenario, shared.version)
+	}
+	if shared.version < 3 && (hasGuardList || hasNextList) {
+		return step, fmt.Errorf("step %d of %s uses `guardList` or `nextList`, which need schema version 3, found %d", step.Index, scenario, shared.version)
+	}
+	if hasGuardList {
+		step.Guards, err = shared.resolve("guardList", guardList)
+	} else {
+		step.Guards, err = decodeAssertions(guards)
+	}
+	if err != nil {
 		return step, err
 	}
-	if step.Next, err = decodeAssertions(next); err != nil {
+	if hasNextList {
+		step.Next, err = shared.resolve("nextList", nextList)
+	} else {
+		step.Next, err = decodeAssertions(next)
+	}
+	if err != nil {
 		return step, err
 	}
 	if step.Assertions, err = decodeAssertions(assertions); err != nil {

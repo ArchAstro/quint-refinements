@@ -8,7 +8,7 @@ import { minimalArtifact } from "./helpers.ts";
 test("parses the shared corpus artifacts", () => {
   for (const name of ["bank_withdraw", "two_phase_commit"]) {
     const artifact = parseConformanceArtifact(readFileSync(new URL(`../../../conformance/cases/${name}/artifact.json`, import.meta.url), "utf8"));
-    assert.equal(artifact.schemaVersion, 2);
+    assert.equal(artifact.schemaVersion, 3);
     assert.ok(artifact.scenarios.length > 0, name);
     for (const scenario of artifact.scenarios) {
       assert.notEqual(scenario.initialState, undefined, `${name}: ${scenarioId(scenario)} has no initial state`);

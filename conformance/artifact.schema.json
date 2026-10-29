@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "modelDigest", "vocabulary", "fixtures", "scenarios"],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "enum": [2, 3] },
     "modelDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "vocabulary": { "$ref": "#/$defs/vocabulary" },
     "fixtures": {
@@ -16,12 +16,51 @@
         "additionalProperties": true
       }
     },
+    "assertionLists": {
+      "description": "Schema v3: each distinct list of obligations, once, in order of first appearance. A step names its guards and next lists by index (`guardList`, `nextList`).",
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/assertion" }
+      }
+    },
     "scenarios": {
       "type": "array",
       "items": { "$ref": "#/$defs/scenario" }
     }
   },
+  "if": {
+    "type": "object",
+    "properties": { "schemaVersion": { "const": 3 } },
+    "required": ["schemaVersion"]
+  },
+  "then": {
+    "required": ["assertionLists"],
+    "properties": { "scenarios": { "type": "array", "items": { "$ref": "#/$defs/scenarioWithoutInlineLists" } } }
+  },
+  "else": {
+    "not": { "type": "object", "required": ["assertionLists"] },
+    "properties": { "scenarios": { "type": "array", "items": { "$ref": "#/$defs/scenarioWithoutIndexedLists" } } }
+  },
   "$defs": {
+    "scenarioWithoutInlineLists": {
+      "type": "object",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": { "not": { "type": "object", "anyOf": [{ "required": ["guards"] }, { "required": ["next"] }] } }
+        }
+      }
+    },
+    "scenarioWithoutIndexedLists": {
+      "type": "object",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": { "not": { "type": "object", "anyOf": [{ "required": ["guardList"] }, { "required": ["nextList"] }] } }
+        }
+      }
+    },
     "strings": {
       "type": "array",
       "items": { "type": "string" }
@@ -145,6 +184,8 @@
           "type": "array",
           "items": { "$ref": "#/$defs/assertion" }
         },
+        "guardList": { "type": "integer", "minimum": 0 },
+        "nextList": { "type": "integer", "minimum": 0 },
         "assertions": {
           "type": "array",
           "items": { "$ref": "#/$defs/assertion" }

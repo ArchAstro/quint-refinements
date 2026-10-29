@@ -5,7 +5,7 @@ Check a Go implementation against a [Quint](https://quint.sh/) model.
 This module is the runtime. It drives your implementation through scenarios
 generated from the model and evaluates every generated guard and next-state
 obligation against the snapshots your code returns. It reads the same
-schema-v2 artifact as the Rust crate, and reports the same obligations and the
+schema-v2 and v3 artifacts as the Rust crate, and reports the same obligations and the
 same divergence messages.
 
 ```console

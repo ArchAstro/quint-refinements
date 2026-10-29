@@ -3,7 +3,12 @@ import { expressionVocabulary } from "./vocabulary.js";
 import { isObject, type Json, type JsonObject, parseJson, sortedKeys } from "./json.js";
 
 /**
- * The frozen schema-v2 conformance artifact exported from the Quint model.
+ * The conformance artifact (schema v2 or v3) exported from the Quint model.
+ *
+ * Schema v3 stores each distinct list of obligations once in `assertionLists`
+ * and a step names its `guardList` and `nextList` by index. Parsing resolves
+ * those references, so every action step carries its own `guards` and `next`
+ * whichever schema the file used.
  */
 export interface ConformanceArtifact {
   /** The version of the generated artifact schema. */
@@ -203,7 +208,25 @@ function decodeAssertions(values: readonly Json[]): ArtifactAssertion[] {
   });
 }
 
-function decodeStep(value: Json): ArtifactStep {
+const firstSupportedSchema = 2;
+const latestSchema = 3;
+
+/** The schema-v3 `assertionLists` table, and the version that says how steps use it. */
+interface SharedLists {
+  readonly version: number;
+  readonly lists: readonly (readonly ArtifactAssertion[])[];
+}
+
+function resolveList(shared: SharedLists, field: string, reference: Json): readonly ArtifactAssertion[] {
+  if (typeof reference !== "bigint" || reference < 0n || reference >= BigInt(shared.lists.length)) {
+    return fail(
+      `\`${field}\` ${String(reference)} is out of range: the artifact has ${shared.lists.length} assertion lists`,
+    );
+  }
+  return shared.lists[Number(reference)] as readonly ArtifactAssertion[];
+}
+
+function decodeStep(value: Json, shared: SharedLists, scenario: string): ArtifactStep {
   const reader = new StrictObject(value, "step");
   const kind = reader.string("kind");
   switch (kind) {
@@ -221,10 +244,43 @@ function decodeStep(value: Json): ArtifactStep {
       const index = reader.count("index");
       const action = reader.string("action");
       const args = reader.array("arguments", true);
-      const guards = reader.array("guards", false);
-      const next = reader.array("next", false);
+      const guards = reader.json("guards", false);
+      const next = reader.json("next", false);
+      const guardList = reader.json("guardList", false);
+      const nextList = reader.json("nextList", false);
       reader.finish();
-      return { kind, index, action, arguments: args, guards: decodeAssertions(guards), next: decodeAssertions(next) };
+      const inline = guards !== undefined || next !== undefined;
+      const referenced = guardList !== undefined || nextList !== undefined;
+      if (shared.version >= 3 && inline) {
+        return fail(
+          `step ${index} of ${scenario} has inline \`guards\` or \`next\`; schema version ${shared.version} names them with \`guardList\` and \`nextList\``,
+        );
+      }
+      if (shared.version < 3 && referenced) {
+        return fail(
+          `step ${index} of ${scenario} uses \`guardList\` or \`nextList\`, which need schema version 3, found ${shared.version}`,
+        );
+      }
+      const resolve = (field: string, reference: Json | undefined, inlineValue: Json | undefined) => {
+        if (reference !== undefined) {
+          return resolveList(shared, field, reference);
+        }
+        if (inlineValue === undefined) {
+          return [];
+        }
+        if (!Array.isArray(inlineValue)) {
+          return fail(`invalid field \`${field === "guardList" ? "guards" : "next"}\`: expected an array`);
+        }
+        return decodeAssertions(inlineValue as readonly Json[]);
+      };
+      return {
+        kind,
+        index,
+        action,
+        arguments: args,
+        guards: resolve("guardList", guardList, guards),
+        next: resolve("nextList", nextList, next),
+      };
     }
     case "observe": {
       const index = reader.count("index");
@@ -237,7 +293,7 @@ function decodeStep(value: Json): ArtifactStep {
   }
 }
 
-function decodeScenario(value: Json): ArtifactScenario {
+function decodeScenario(value: Json, shared: SharedLists): ArtifactScenario {
   const reader = new StrictObject(value, "scenario");
   const source = reader.string("source");
   const module = reader.string("module");
@@ -247,7 +303,7 @@ function decodeScenario(value: Json): ArtifactScenario {
   const initialState = reader.json("initialState", false);
   const steps = reader.array("steps", true);
   reader.finish();
-  const scenario = { source, module, fixtureNamespace, name, requiredCapabilities, steps: steps.map(decodeStep) };
+  const scenario = { source, module, fixtureNamespace, name, requiredCapabilities, steps: steps.map(step => decodeStep(step, shared, `${module}.${name}`)) };
   return initialState === undefined || initialState === null ? scenario : { ...scenario, initialState };
 }
 
@@ -273,14 +329,33 @@ function decodeArtifact(root: Json): ConformanceArtifact {
   const modelDigest = reader.string("modelDigest");
   const vocabularyValue = reader.json("vocabulary", true);
   const fixtures = decodeFixtures(reader.json("fixtures", true));
+  const assertionLists = reader.json("assertionLists", false);
   const scenarios = reader.array("scenarios", true);
   reader.finish();
+  if (schemaVersion < firstSupportedSchema || schemaVersion > latestSchema) {
+    return fail(
+      `unsupported schema version ${schemaVersion}; this runtime reads versions ${firstSupportedSchema} to ${latestSchema}`,
+    );
+  }
+  if (assertionLists !== undefined && schemaVersion < 3) {
+    return fail(`\`assertionLists\` needs schema version 3, found ${schemaVersion}`);
+  }
+  if (assertionLists !== undefined && !Array.isArray(assertionLists)) {
+    return fail("invalid field `assertionLists`: expected an array");
+  }
+  const lists = ((assertionLists ?? []) as readonly Json[]).map(list => {
+    if (!Array.isArray(list)) {
+      return fail("invalid field `assertionLists`: expected an array of arrays");
+    }
+    return decodeAssertions(list as readonly Json[]);
+  });
+  const shared: SharedLists = { version: schemaVersion, lists };
   return {
     schemaVersion,
     modelDigest,
     vocabulary: decodeVocabulary(vocabularyValue),
     fixtures,
-    scenarios: scenarios.map(decodeScenario),
+    scenarios: scenarios.map(scenario => decodeScenario(scenario, shared)),
   };
 }
 

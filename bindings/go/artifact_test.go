@@ -53,7 +53,7 @@ func TestParsesTheSharedCorpusArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if artifact.SchemaVersion != 2 || len(artifact.Scenarios) == 0 {
+		if artifact.SchemaVersion != 3 || len(artifact.Scenarios) == 0 {
 			t.Errorf("%s: unexpected artifact %+v", name, artifact.Vocabulary)
 		}
 		for _, scenario := range artifact.Scenarios {

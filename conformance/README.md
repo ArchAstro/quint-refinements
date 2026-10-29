@@ -1,7 +1,12 @@
 # Binding conformance corpus
 
-Every runtime binding consumes the same schema-v2 artifact and must execute the
-cases in `cases/` against its real implementation boundary.
+Every runtime binding consumes the same schema-v3 artifact and must execute the
+cases in `cases/` against its real implementation boundary. Schema v3 stores
+each distinct guard and next-state list once in `assertionLists`; a step names
+its lists by index. Bindings also read schema v2, which writes them inline on
+each step. `cases/bank_withdraw_v2` is that case frozen in the v2 form: it is
+not regenerated, and each binding tests that it resolves to the same steps as
+`cases/bank_withdraw`.
 
 Each case contains:
 
