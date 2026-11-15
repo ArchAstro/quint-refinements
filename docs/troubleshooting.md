@@ -61,10 +61,6 @@ Every listed action must be called by at least one `@conformance` run, and belon
 
 Action names become snake_case Rust methods. `from_initial_state`, `snapshot`, `fixtures` and Rust keywords such as `match` are taken, and `flushWal` and `flush_wal` collide. Rename the action in the model, or group it under a `@primitive` with another name.
 
-### `uses unsupported normalized operators ...`
-
-A guard, assignment or assertion uses a Quint operator the Rust runtime cannot evaluate. The supported set is in [`expression_vocabulary.json`](../packages/compiler/expression_vocabulary.json). Rewrite the expression with supported operators, or move the logic into an action whose effect is checked by state.
-
 ### `quint-refinements.json drifted; run quint-refinements compile`
 
 You ran `compile --check` and a generated file no longer matches the model. Run `npx quint-refinements compile` and commit the result. See the [CI guide](guides/ci.md).

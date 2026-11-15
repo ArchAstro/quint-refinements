@@ -368,6 +368,72 @@ test("an action without a plain assignment is held to the state Quint reached", 
   });
 });
 
+test("an action the runtimes cannot evaluate is held to the state Quint reached", () => {
+  withTemporaryDirectory(directory => {
+    // `foldl` is outside the runtimes' expression vocabulary.
+    writeModel(directory, `module tally {
+  type State = { items: List[int], total: int }
+  var state: State
+
+  action init = state' = { items: [], total: 0 }
+
+  action push(amount: int): bool = all {
+    amount > 0,
+    state' = {
+      items: state.items.append(amount),
+      total: state.items.append(amount).foldl(0, (sum, each) => sum + each),
+    },
+  }
+
+  action clear = state' = { items: [], total: state.total - state.total }
+
+  /// @conformance
+  run pushRun = init
+    .then(push(2))
+    .then(push(3))
+    .then(clear)
+    .then(all { assert(state.total == 0), state' = state })
+}
+`);
+    const result = compileProject("model.qnt", { cwd: directory });
+    const artifact = JSON.parse(fs.readFileSync(result.artifactPath, "utf8"));
+    const steps = artifact.scenarios[0].steps.filter(step => step.kind === "action");
+    const next = step => artifact.assertionLists[step.nextList];
+    const tally = (items, total) => ({
+      kind: "call",
+      operator: "assign",
+      arguments: [
+        { kind: "name", value: "state" },
+        {
+          kind: "call",
+          operator: "Rec",
+          arguments: [
+            { kind: "str", value: "items" },
+            {
+              kind: "call",
+              operator: "List",
+              arguments: items.map(value => ({ kind: "int", value })),
+            },
+            { kind: "str", value: "total" },
+            { kind: "int", value: total },
+          ],
+        },
+      ],
+    });
+
+    // Both pushes lose their guard and assignment and gain the reached state.
+    assert.deepEqual(steps.map(step => step.action), ["push", "push", "clear"]);
+    assert.equal(steps[0].guardList, undefined);
+    assert.equal(steps[1].guardList, undefined);
+    assert.deepEqual(next(steps[0]).map(item => item.expression), [tally([2], 2)]);
+    assert.deepEqual(next(steps[1]).map(item => item.expression), [tally([2, 3], 5)]);
+
+    // `clear` uses supported operators only, so its assignment is evaluated.
+    const [cleared] = next(steps[2]);
+    assert.equal(cleared.expression.arguments[1].arguments[3].operator, "isub");
+  });
+});
+
 test("an assertion may combine conditions with all { }", () => {
   withTemporaryDirectory(directory => {
     const { artifact } = compileShop(directory);
