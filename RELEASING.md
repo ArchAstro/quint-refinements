@@ -1,7 +1,8 @@
 # Releasing
 
 The compiler and the TypeScript runtime (both in the npm package), the Rust runtime
-(crates.io) and the Go runtime (a Go module) release together under one version.
+(crates.io), the Go runtime (a Go module) and the Elixir runtime (a Mix project used
+as a Git dependency) release together under one version.
 One tag publishes npm and crates.io, in an order that keeps the quick start working:
 
 ```text
@@ -11,11 +12,12 @@ vX.Y.Z tag ─> verify ─> crates.io ─> npm ─> run the published quick star
 ## Cut a release
 
 1. Confirm CI passes on `main`.
-2. In a PR, set the version in three places and update `CHANGELOG.md`:
+2. In a PR, set the version in four places and update `CHANGELOG.md`:
    - `npm version <patch|minor|major> --no-git-tag-version` (`package.json`, `package-lock.json`)
    - `version` in `bindings/rust/Cargo.toml`, then `cargo check --manifest-path bindings/rust/Cargo.toml` to refresh `Cargo.lock`
    - `cargo check --manifest-path examples/rust/bank_account/Cargo.toml` to refresh its lockfile
-3. Run `npm test`. It fails if the two versions differ.
+   - `@version` in `bindings/elixir/mix.exs`
+3. Run `npm test`. It fails if the versions differ.
 
 The TypeScript runtime has no version of its own: it is built into the npm
 package (`quint-refinements/runtime`), so `package.json` versions it. `npm pack`
@@ -39,6 +41,10 @@ named after the directory. Push it for the same commit:
 git tag -a bindings/go/v0.2.0 -m "bindings/go v0.2.0"
 git push origin bindings/go/v0.2.0
 ```
+
+The Elixir runtime is not published to Hex. A Mix project depends on it from
+Git (`github: "ArchAstro/quint-refinements", sparse: "bindings/elixir", tag: "v0.2.0"`),
+so the release tag is its release.
 
 `.github/workflows/publish.yml` does the rest for crates.io and npm (the TypeScript runtime goes out with npm). Every job is safe to re-run: a
 version that is already published with the same contents is skipped.

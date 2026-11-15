@@ -5,7 +5,8 @@ quint-refinements new <project-name> [--no-install]
 quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--artifact <path>] [--rust <path>]
                           [--go <path>] [--go-package <name>]
-                          [--typescript <path>] [--compact]
+                          [--typescript <path>] [--elixir <path>]
+                          [--elixir-module <Name>] [--compact]
 quint-refinements --version
 quint-refinements --help
 ```
@@ -41,7 +42,7 @@ The name must use lowercase letters, numbers and hyphens, and the directory must
 npx quint-refinements compile
 ```
 
-Reads the model, runs each `@conformance` scenario through Quint, and writes two files (one more for each of `--go` and `--typescript` you add to `--rust`):
+Reads the model, runs each `@conformance` scenario through Quint, and writes two files (one more for each of `--go`, `--typescript` and `--elixir` you add to `--rust`):
 
 1. `quint-refinements.json`: the scenarios and their obligations.
 2. `src/generated_refinement.rs`: the `Implementation` trait, ownership records and runner.
@@ -58,6 +59,8 @@ Both are replaced on every run. `src/main.rs` is written only when it does not e
 | `--go <path>` | off | Write a Go adapter instead of the Rust one. Pass `--rust` as well to write both. The artifact must sit in the adapter's directory, because Go embeds it from there. |
 | `--go-package <name>` | the adapter's directory name | The Go package clause. |
 | `--typescript <path>` | off | Write a TypeScript adapter instead of the Rust one. Pass `--rust` as well to write both. The adapter reads the artifact from a path relative to itself, so the artifact may sit anywhere. |
+| `--elixir <path>` | off | Write an Elixir adapter instead of the Rust one. Pass `--rust` as well to write both. The adapter reads the artifact, from a path relative to itself, when it is compiled. |
+| `--elixir-module <Name>` | the model's module name in CamelCase, then `.GeneratedRefinement` | The name of the generated Elixir module. |
 | `--compact` | off | Write the artifact as one line. The artifact stores each distinct list of obligations once, but an indented large model is still mostly whitespace. Pass it to `--check` too: the check compares bytes. |
 
 ### Output
@@ -86,7 +89,9 @@ quint-refinements.json drifted; run quint-refinements compile
 
 4. For `--typescript`, nothing beyond Node.js: the TypeScript adapter is written as it is generated. A TypeScript-only project needs no Rust toolchain.
 
-The Go adapter is described in [Generated Go](go.md) and the TypeScript adapter in [Generated TypeScript](typescript.md).
+5. For `--elixir`, nothing beyond Node.js: the Elixir adapter is written already formatted, without running `mix format`. An Elixir-only project needs no Rust toolchain.
+
+The Go adapter is described in [Generated Go](go.md), the TypeScript adapter in [Generated TypeScript](typescript.md) and the Elixir adapter in [Generated Elixir](elixir.md).
 
 ## Versions
 

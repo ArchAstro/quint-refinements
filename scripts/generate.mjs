@@ -52,6 +52,14 @@ const models = [
     typescript: "examples/typescript/raft/generated_refinement.ts",
   },
   {
+    source: "examples/elixir/bank_account/bank.qnt",
+    elixir: "examples/elixir/bank_account/lib/generated_refinement.ex",
+  },
+  {
+    source: "examples/elixir/two_phase_commit/model.qnt",
+    elixir: "examples/elixir/two_phase_commit/lib/generated_refinement.ex",
+  },
+  {
     source: "examples/rust/shop_orders/model.qnt",
   },
   {
@@ -77,8 +85,8 @@ const models = [
   },
 ];
 
-for (const { source, artifact, rust, go, goPackage, typescript, corpusCase } of models) {
-  const { artifactPath } = compileProject(source, { cwd: root, artifact, rust, go, goPackage, typescript, check });
+for (const { source, artifact, rust, go, goPackage, typescript, elixir, corpusCase } of models) {
+  const { artifactPath } = compileProject(source, { cwd: root, artifact, rust, go, goPackage, typescript, elixir, check });
   if (corpusCase) {
     const generated = fs.readFileSync(artifactPath, "utf8");
     const corpusPath = path.join(root, "conformance", "cases", corpusCase, "artifact.json");

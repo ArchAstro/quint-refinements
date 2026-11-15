@@ -1,7 +1,7 @@
 # Changelog
 
 This project follows [Semantic Versioning](https://semver.org/). The compiler
-and the Rust, Go and TypeScript runtimes share one version.
+and the Rust, Go, TypeScript and Elixir runtimes share one version.
 
 ## Unreleased
 
@@ -58,6 +58,20 @@ and the Rust, Go and TypeScript runtimes share one version.
 - TypeScript examples (`bank_account`, `two_phase_commit`, `raft`) whose
   obligation counts equal the Rust examples', and the shared conformance
   corpus runs against the TypeScript runtime.
+
+- An Elixir runtime, the Mix project in `bindings/elixir`, with no
+  dependencies (it needs OTP 27 for `:json`). It reads the same schema-v2 and v3
+  artifacts as the other runtimes with the same semantics and divergence
+  messages. Quint values are tagged tuples and integers are unbounded. The
+  implementation is a value that each callback takes and returns.
+- `compile --elixir <path>` (and `--elixir-module`) generates a module with an
+  `Implementation` behaviour, ownership and retrieve tables, `artifact/0`,
+  `run_primitive/4` and `refine_all/2`. The module embeds the artifact when it
+  is compiled. Without `--rust` only the Elixir adapter is written, and
+  `--check` covers it.
+- Elixir examples (`bank_account`, `two_phase_commit`) whose obligation counts
+  equal the Rust examples', and the shared conformance corpus runs against the
+  Elixir runtime.
 
 ## 0.2.0
 

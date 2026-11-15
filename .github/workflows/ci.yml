@@ -121,6 +121,50 @@ jobs:
             --artifact examples/typescript/raft/quint-refinements.json \
             --typescript examples/typescript/raft/generated_refinement.ts --check
 
+  elixir:
+    name: Elixir ${{ matrix.elixir }} (OTP ${{ matrix.otp }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: "1.17"
+            otp: "27"
+          - elixir: "1.20"
+            otp: "27"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Runtime tests
+        working-directory: bindings/elixir
+        run: |
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test
+      - name: Examples and the shared conformance corpus
+        run: |
+          for example in examples/elixir/*/; do
+            (
+              cd "${example}"
+              mix format --check-formatted
+              mix compile --warnings-as-errors
+              mix test
+              mix run refine.exs
+            )
+          done
+      - name: Generated Elixir adapters are current
+        run: |
+          (cd examples/elixir/bank_account && node ../../../packages/compiler/cli.mjs compile bank.qnt --elixir lib/generated_refinement.ex --check)
+          (cd examples/elixir/two_phase_commit && node ../../../packages/compiler/cli.mjs compile model.qnt --elixir lib/generated_refinement.ex --check)
+
   package:
     name: npm package
     runs-on: ubuntu-latest

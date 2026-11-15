@@ -29,4 +29,9 @@ may be stricter, but cannot reinterpret these fields.
 4. The TypeScript binding executes both cases in
    `bindings/typescript/corpus/corpus.test.ts` against the TypeScript examples,
    with the same comparison. Run it with `npm run test:typescript`.
+5. The Elixir binding executes the same cases against the Elixir examples:
+   `bank_withdraw` and `bank_withdraw_v2` in
+   `examples/elixir/bank_account/test/bank_test.exs` and `two_phase_commit` in
+   `examples/elixir/two_phase_commit/test/coordinator_test.exs`, with the same
+   comparison. Run them with `mix test` in each example.
 

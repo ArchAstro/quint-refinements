@@ -5,13 +5,13 @@
 [![crates.io](https://img.shields.io/crates/v/quint-refinements)](https://crates.io/crates/quint-refinements)
 [![docs](https://img.shields.io/badge/docs-archastro.github.io-6d43f5)](https://archastro.github.io/quint-refinements/)
 
-Check that your real code does what your [Quint](https://quint.sh/) model says. Rust, Go and TypeScript implementations are supported, and read the same generated scenarios.
+Check that your real code does what your [Quint](https://quint.sh/) model says. Rust, Go, TypeScript and Elixir implementations are supported, and read the same generated scenarios.
 
 You write the model and the implementation. `quint-refinements` generates everything between them, then runs your code through each scenario and checks every guard and next-state assignment against what the code actually did.
 
 ```text
 model.qnt ──compile──> quint-refinements.json        scenarios and obligations
-                       src/generated_refinement.rs   typed trait and runner (Rust; --go and --typescript write Go and TypeScript)
+                       src/generated_refinement.rs   typed trait and runner (Rust; --go, --typescript and --elixir write the others)
                                   │
 your implementation ──────────────┘──> cargo run     pass, or the exact divergence
 ```
@@ -172,6 +172,28 @@ const results = await refineAll(Bank.fromState); // Bank.fromState(initial: Runt
 
 Methods may return promises under `refineAll`; `refineAllSync` is the synchronous form. Quint integers are `bigint`. A divergence is the same message the Rust and Go runtimes give, for example `bank.withdrawRun:withdraw next: assign state diverged at state.balance expected Int(6), observed Int(14)`. See [Generated TypeScript](docs/reference/typescript.md).
 
+## What you write in Elixir
+
+An Elixir project needs Elixir 1.17 or newer on OTP 27 or newer, and no Rust. Add the runtime to `mix.exs`, generate the adapter with `--elixir`, then implement the behaviour it declares:
+
+```elixir
+{:quint_refinements, github: "ArchAstro/quint-refinements", sparse: "bindings/elixir", only: :test}
+```
+
+```console
+npx quint-refinements compile model.qnt --elixir test/support/generated_refinement.ex
+```
+
+```elixir
+@callback from_initial_state(QuintRefinements.Value.t()) :: t()
+@callback snapshot(t()) :: QuintRefinements.Evidence.t()
+@callback withdraw(t(), arguments()) :: t()
+
+results = Bank.GeneratedRefinement.refine_all(Bank.Adapter)
+```
+
+The implementation is a value: each callback takes it and returns it as the action left it. A divergence raises a `QuintRefinements.Error` with the message the other runtimes give. See [Generated Elixir](docs/reference/elixir.md).
+
 ## What gets checked
 
 1. Every action in a scenario has an implementation command that owns it.
@@ -200,10 +222,11 @@ quint-refinements new <project-name> [--no-install]
 quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--artifact <path>] [--rust <path>]
                           [--go <path>] [--go-package <name>]
-                          [--typescript <path>] [--compact]
+                          [--typescript <path>] [--elixir <path>]
+                          [--elixir-module <Name>] [--compact]
 ```
 
-`compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`. `--go` and `--typescript` write a Go or TypeScript adapter instead of the Rust one (add `--rust` to write Rust as well).
+`compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`. `--go`, `--typescript` and `--elixir` write a Go, TypeScript or Elixir adapter instead of the Rust one (add `--rust` to write Rust as well).
 
 ## Examples
 
@@ -221,6 +244,8 @@ quint-refinements compile [spec.qnt] [--check] [--module <name>]
 | [`typescript/bank_account`](examples/typescript/bank_account) | The tutorial's bank in TypeScript, with wrong banks that are caught | `node examples/typescript/bank_account/main.ts` |
 | [`typescript/two_phase_commit`](examples/typescript/two_phase_commit) | `@primitive`, a bound fixture and the async runner in TypeScript | `node examples/typescript/two_phase_commit/main.ts` |
 | [`typescript/raft`](examples/typescript/raft) | The Raft example in TypeScript, with the same obligation counts as Rust | `node examples/typescript/raft/main.ts` |
+| [`elixir/bank_account`](examples/elixir/bank_account) | The tutorial's bank in Elixir, with wrong banks that are caught | `cd examples/elixir/bank_account && mix run refine.exs` |
+| [`elixir/two_phase_commit`](examples/elixir/two_phase_commit) | `@primitive` and a bound fixture in Elixir | `cd examples/elixir/two_phase_commit && mix run refine.exs` |
 | `two_phase_commit_async` | The same generated adapter through the async driver | `cargo run --manifest-path bindings/rust/Cargo.toml --example two_phase_commit_async` |
 
 The [examples guide](examples/README.md) lists the smaller runtime examples in learning order.
@@ -232,19 +257,21 @@ packages/compiler/   the npx CLI: Quint AST in, artifact and Rust adapter out
 bindings/rust/       the Rust runtime, published to crates.io
 bindings/go/         the Go runtime, a Go module
 bindings/typescript/ the TypeScript runtime, shipped in the npm package as quint-refinements/runtime
+bindings/elixir/     the Elixir runtime, a Mix project
 examples/rust/       complete generated Rust projects
 examples/go/         the same models implemented in Go
 examples/typescript/ the same models implemented in TypeScript
+examples/elixir/     the bank and the two-phase commit implemented in Elixir
 conformance/         artifact schema and golden cases every binding must pass
 docs/                guides and reference, as Markdown
 website/             the documentation site built from docs/
 ```
 
-The compiler, the TypeScript runtime (inside the npm package), the Rust runtime and the Go runtime release together under one version. Other language runtimes belong under `bindings/<language>` and read the same artifact; the cases in `conformance/` are what each must pass.
+The compiler, the TypeScript runtime (inside the npm package), the Rust runtime, the Go runtime and the Elixir runtime release together under one version. Other language runtimes belong under `bindings/<language>` and read the same artifact; the cases in `conformance/` are what each must pass.
 
 ## Beyond the generated adapter
 
-The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and `Driver`, so you can drive scenarios yourself with `refine_scenario`, `refine_scenario_async` or a step-by-step `RefinementSession`. The lower-level JavaScript generator is exported as `quint-refinements/generate.mjs` for integrations that need custom capability names or partial refinement. See the [crate documentation](https://docs.rs/quint-refinements), the [Go API](https://pkg.go.dev/github.com/ArchAstro/quint-refinements/bindings/go), or [Generated TypeScript](docs/reference/typescript.md), whose generated module exposes `ownership`, `retrieve`, `artifact()` and `driver` for `refineScenario`.
+The generated module exposes `OWNERSHIP`, `RETRIEVE`, `artifact()` and `Driver`, so you can drive scenarios yourself with `refine_scenario`, `refine_scenario_async` or a step-by-step `RefinementSession`. The lower-level JavaScript generator is exported as `quint-refinements/generate.mjs` for integrations that need custom capability names or partial refinement. See the [crate documentation](https://docs.rs/quint-refinements), the [Go API](https://pkg.go.dev/github.com/ArchAstro/quint-refinements/bindings/go), or [Generated TypeScript](docs/reference/typescript.md), whose generated module exposes `ownership`, `retrieve`, `artifact()` and `driver` for `refineScenario`. [Generated Elixir](docs/reference/elixir.md) describes the same pieces for `QuintRefinements.Drive.refine_scenario/7`.
 
 ## Contributing
 

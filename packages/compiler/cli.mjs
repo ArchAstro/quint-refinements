@@ -183,7 +183,7 @@ function parseQuint(sourcePath) {
   }
 }
 
-export function inferProject(parsed, sourceName, requestedModule, targets = { rust: true, go: false, typescript: false }) {
+export function inferProject(parsed, sourceName, requestedModule, targets = { rust: true, go: false, typescript: false, elixir: false }) {
   const candidates = (parsed.modules ?? []).filter(module =>
     module.declarations.some(declaration =>
       declaration.kind === "def"
@@ -354,6 +354,9 @@ export function inferProject(parsed, sourceName, requestedModule, targets = { ru
   }
   if (targets.typescript) {
     checkTypescriptNames(primitives);
+  }
+  if (targets.elixir) {
+    checkElixirNames(primitives);
   }
   const observationOperators = [...vocabulary.operators]
     .filter(operator => !["assert", "assign"].includes(operator))
@@ -1128,6 +1131,269 @@ export async function refineAll<I extends MaybeAsync<Implementation>>(
 `;
 }
 
+const elixirRuntimeApp = "quint_refinements";
+
+// Callbacks the generated `Implementation` behaviour already declares, words
+// Elixir reserves, and functions every module already has.
+const elixirReservedFunctions = new Set([
+  "snapshot", "from_initial_state",
+  "true", "false", "nil", "when", "and", "or", "not", "in", "fn", "do", "end",
+  "catch", "rescue", "after", "else",
+  "module_info", "behaviour_info", "__info__",
+]);
+
+// `flushWal` and `flush_wal` both become `flush_wal`.
+export function elixirFunctionName(name) {
+  return rustIdentifier(name);
+}
+
+// `two_phase_commit` becomes `TwoPhaseCommit.GeneratedRefinement`.
+export function elixirModuleName(module, requested) {
+  const name = requested ?? `${module
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map(part => part[0].toUpperCase() + part.slice(1))
+    .join("")}.GeneratedRefinement`;
+  if (!/^[A-Z][A-Za-z0-9_]*(\.[A-Z][A-Za-z0-9_]*)*$/.test(name)) {
+    fail(`${name} is not an Elixir module name; pass --elixir-module <Name>`);
+  }
+  return name;
+}
+
+function checkElixirNames(primitives) {
+  const functions = new Map();
+  for (const primitive of primitives) {
+    const name = elixirFunctionName(primitive.name);
+    if (elixirReservedFunctions.has(name)) {
+      fail(`${primitive.name} maps to reserved Elixir function ${name}; rename it or wrap it in a @primitive`);
+    }
+    if (functions.has(name)) {
+      fail(`${functions.get(name)} and ${primitive.name} both map to Elixir function ${name}`);
+    }
+    functions.set(name, primitive.name);
+  }
+}
+
+// A JSON string is an Elixir string once `#{` cannot start an interpolation.
+function elixirString(value) {
+  return JSON.stringify(value).replace(/#\{/g, "\\#{");
+}
+
+// One item per line: `mix format` keeps a list that is already broken across
+// lines, so the generated file is formatted whatever the names' lengths.
+function elixirList(values, indent) {
+  if (values.length === 0) {
+    return "[]";
+  }
+  return `[\n${values.map(value => `${indent}  ${elixirString(value)}`).join(",\n")}\n${indent}]`;
+}
+
+export function generateElixirModule(project, moduleName) {
+  checkElixirNames(project.primitives);
+  const hasCompound = project.primitives.some(primitive => primitive.compound);
+  const hasSingle = project.primitives.some(primitive => !primitive.compound);
+  const records = project.primitives.map(primitive => `        %{
+          primitive: ${elixirString(primitiveId(project, primitive))},
+          refines: ${elixirList(primitive.actions, "          ")},
+          observations: @observations,
+          retrieve: @state_names
+        }`).join(",\n");
+  const callbacks = project.primitives.map(primitive => {
+    const name = elixirFunctionName(primitive.name);
+    return primitive.compound
+      ? `    @doc """
+    Executes Quint actions ${quoted(primitive.actions)} as one command.
+
+    Returns the implementation and one snapshot taken after each action, in
+    that order.
+    """
+    @callback ${name}(t(), actions()) :: {t(), tape()}`
+      : `    @doc "Executes Quint action \`${primitive.name}\` with its generated arguments."
+    @callback ${name}(t(), arguments()) :: t()`;
+  }).join("\n\n");
+  const clauses = project.primitives.map(primitive => {
+    const name = elixirFunctionName(primitive.name);
+    const head = `  def run_primitive(module, ${elixirString(primitiveId(project, primitive))}, actions, impl) do`;
+    return primitive.compound
+      ? `${head}
+    expected = ${elixirList(primitive.actions, "    ")}
+
+    expect_actions(${elixirString(primitive.name)}, actions, expected)
+    {impl, tape} = module.${name}(impl, actions)
+    {tape, impl}
+  end`
+      : `${head}
+    action = expect_one(${elixirString(primitive.name)}, actions)
+    impl = module.${name}(impl, action.arguments)
+    {[module.snapshot(impl)], impl}
+  end`;
+  }).join("\n\n");
+  const helpers = [
+    hasCompound && `  defp expect_actions(primitive, actions, expected) do
+    if Enum.map(actions, & &1.name) != expected do
+      got = Drive.format_actions(actions)
+      Error.fail("#{primitive} refines #{Drive.format_strings(expected)}; got #{got}")
+    end
+  end`,
+    hasSingle && `  defp expect_one(action, [%{name: action} = only]), do: only
+
+  defp expect_one(action, [only]) do
+    Error.fail("#{action} primitive cannot refine #{only.name}")
+  end
+
+  defp expect_one(action, actions) do
+    Error.fail("#{action} expects one Quint action; got #{Drive.format_actions(actions)}")
+  end`,
+  ].filter(Boolean).join("\n\n");
+
+  return `# @generated by quint-refinements from ${project.source}. Do not edit.
+# Regenerate with \`quint-refinements compile\`.
+
+defmodule ${moduleName} do
+  @moduledoc """
+  Connects an implementation to the scenarios generated from the Quint module
+  \`${project.module}\`.
+
+  Implement the \`Implementation\` behaviour nested in this module, then call
+  \`refine_all/2\` with the implementing module.
+  """
+
+  alias QuintRefinements.{Artifact, Drive, Error, Fixtures, Ownership, Value}
+
+  @namespace ${elixirString(project.module)}
+
+  @artifact_path Path.expand(${elixirString(project.artifactInclude)}, __DIR__)
+  @external_resource @artifact_path
+  @artifact_json File.read!(@artifact_path)
+
+  @state_names ${elixirList(project.stateVariables.map(name => `name:${name}`), "  ")}
+
+  @observations ${elixirList(project.paths, "  ")}
+
+  @retrieve ${elixirList(project.retrieve, "  ")}
+
+  defmodule Implementation do
+    @moduledoc """
+    The domain implementation connected to the generated Quint scenarios.
+
+    An implementation is a value. Each action callback takes it and returns the
+    implementation as the action left it. \`snapshot/1\` returns what the
+    refinement checker may observe.
+    """
+
+    @typedoc "The implementation under test."
+    @type t :: term()
+
+    @typedoc "One Quint action's generated arguments."
+    @type arguments :: [QuintRefinements.Value.t()]
+
+    @typedoc "The Quint actions one command owns, in order."
+    @type actions :: [QuintRefinements.Drive.resolved_action()]
+
+    @typedoc "One snapshot per action a command owns, in order."
+    @type tape :: [QuintRefinements.Evidence.t()]
+
+    @doc "Builds the implementation from a scenario's generated initial state."
+    @callback from_initial_state(QuintRefinements.Value.t()) :: t()
+
+    @doc "Returns the current observable implementation state."
+    @callback snapshot(t()) :: QuintRefinements.Evidence.t()
+
+${callbacks}
+  end
+
+  @typedoc "The result of refining one generated Quint run."
+  @type scenario_result :: %{
+          scenario: String.t(),
+          evaluated_obligations: pos_integer(),
+          implementation: Implementation.t()
+        }
+
+  @doc "Which implementation command owns each Quint action."
+  @spec ownership() :: Ownership.table()
+  def ownership do
+    %{
+      owner: ${elixirString(`${project.module}-generated-refinement`)},
+      descriptors: [
+${records}
+      ]
+    }
+  end
+
+  @doc "Everything the generated obligations may read from a snapshot."
+  @spec retrieve() :: [String.t()]
+  def retrieve, do: @retrieve
+
+  @doc "Parses the generated scenarios this module was compiled with."
+  @spec artifact() :: Artifact.t()
+  def artifact, do: Artifact.parse!(@artifact_json)
+
+  @doc """
+  Runs one implementation command for the Quint actions it owns.
+
+  Returns one snapshot per action and the implementation as the command left
+  it. This is the driver \`refine_all/2\` hands to
+  \`QuintRefinements.Drive.refine_scenario/7\`.
+  """
+  @spec run_primitive(module(), String.t(), Implementation.actions(), Implementation.t()) ::
+          {Implementation.tape(), Implementation.t()}
+${clauses}
+
+  def run_primitive(_module, primitive, _actions, _impl) do
+    Error.fail("unknown generated primitive #{primitive}")
+  end
+
+  @doc """
+  Runs every generated conformance scenario against a fresh implementation that
+  \`module.from_initial_state/1\` builds from the scenario's initial state.
+
+  ## Options
+
+    * \`:fixtures\` - a function from the parsed artifact to a
+      \`QuintRefinements.Fixtures\` table. By default each constant the model
+      names has the value the model gives it. Use this to bind a constant to a
+      production value instead; the runner then fails if that value and the
+      model disagree.
+    * \`:artifact\` - the parsed artifact to run. By default it is the one this
+      module was compiled with.
+
+  Raises a \`QuintRefinements.Error\` naming the first divergence.
+  """
+  @spec refine_all(module(), keyword()) :: [scenario_result()]
+  def refine_all(module, options \\\\ []) do
+    artifact = Keyword.get_lazy(options, :artifact, &artifact/0)
+    default_fixtures = &Fixtures.from_artifact(@namespace, &1)
+    fixtures = Keyword.get(options, :fixtures, default_fixtures).(artifact)
+    Fixtures.validate!(fixtures, artifact)
+    ownership = Ownership.collect(ownership())
+    driver = &run_primitive(module, &1, &2, &3)
+
+    for scenario <- artifact.scenarios do
+      impl = module.from_initial_state(initial_state(scenario))
+      init = module.snapshot(impl)
+
+      {evaluated, impl} =
+        Drive.refine_scenario(scenario, init, ownership, @retrieve, fixtures, driver, impl)
+
+      %{
+        scenario: Artifact.scenario_id(scenario),
+        evaluated_obligations: evaluated,
+        implementation: impl
+      }
+    end
+  end
+
+  defp initial_state(%{initial_state: nil} = scenario) do
+    Error.fail("#{Artifact.scenario_id(scenario)} has no generated initial state")
+  end
+
+  defp initial_state(%{initial_state: initial_state}), do: Value.from_itf(initial_state)
+
+${helpers}
+end
+`;
+}
+
 function generateMain(project) {
   const initializeValues = 'BTreeMap::from([("state".to_owned(), initial_state.clone())])';
   const methods = project.primitives.map(primitive => primitive.compound
@@ -1381,15 +1647,25 @@ export function compileProject(sourceArgument, options = {}) {
   const artifactPath = options.artifact
     ? path.resolve(cwd, options.artifact)
     : path.join(projectDirectory, "quint-refinements.json");
-  // `--go` or `--typescript` alone selects a project without Rust; `--rust` adds the Rust adapter.
-  const emitRust = options.rust !== undefined || (options.go === undefined && options.typescript === undefined);
+  // `--go`, `--typescript` or `--elixir` alone selects a project without Rust; `--rust` adds the Rust adapter.
+  const emitRust = options.rust !== undefined
+    || (options.go === undefined && options.typescript === undefined && options.elixir === undefined);
   const generatedRustPath = options.rust
     ? path.resolve(cwd, options.rust)
     : path.join(projectDirectory, "src", "generated_refinement.rs");
   const generatedGoPath = options.go ? path.resolve(cwd, options.go) : undefined;
   const generatedTypescriptPath = options.typescript ? path.resolve(cwd, options.typescript) : undefined;
+  const generatedElixirPath = options.elixir ? path.resolve(cwd, options.elixir) : undefined;
+  if (options.elixirModule !== undefined && generatedElixirPath === undefined) {
+    fail("--elixir-module needs --elixir <path>");
+  }
   const parsed = parseQuint(sourcePath);
-  const project = inferProject(parsed, sourceName, options.module, { rust: emitRust, go: generatedGoPath !== undefined, typescript: generatedTypescriptPath !== undefined });
+  const project = inferProject(parsed, sourceName, options.module, {
+    rust: emitRust,
+    go: generatedGoPath !== undefined,
+    typescript: generatedTypescriptPath !== undefined,
+    elixir: generatedElixirPath !== undefined,
+  });
   const artifact = generateConformanceTraces({
     root: packageRoot,
     specDir: projectDirectory,
@@ -1428,6 +1704,11 @@ export function compileProject(sourceArgument, options = {}) {
     project.artifactInclude = relativeArtifact(generatedTypescriptPath);
     writeOrCheck(generatedTypescriptPath, generateTypeScriptModule(project), options.check);
   }
+  if (generatedElixirPath) {
+    project.artifactInclude = relativeArtifact(generatedElixirPath);
+    const moduleName = elixirModuleName(project.module, options.elixirModule);
+    writeOrCheck(generatedElixirPath, generateElixirModule(project, moduleName), options.check);
+  }
 
   // The implementation file belongs to the user: scaffold it once, in the
   // standard project layout, and never overwrite it.
@@ -1441,6 +1722,7 @@ export function compileProject(sourceArgument, options = {}) {
     generatedRustPath: emitRust ? generatedRustPath : undefined,
     generatedGoPath,
     generatedTypescriptPath,
+    generatedElixirPath,
     mainPath,
   };
 }
@@ -1637,7 +1919,7 @@ export function createProject(name, options = {}) {
 const defaultSource = "model.qnt";
 
 function usage() {
-  console.log(`quint-refinements: check a Rust, Go or TypeScript implementation against a Quint model
+  console.log(`quint-refinements: check a Rust, Go, TypeScript or Elixir implementation against a Quint model
 
 Usage:
   quint-refinements new <project-name> [--no-install]
@@ -1645,7 +1927,8 @@ Usage:
       and the generated adapter between them.
 
   quint-refinements compile [spec.qnt] [options]
-      Generate the scenario artifact and the Rust, Go or TypeScript adapter from a Quint model.
+      Generate the scenario artifact and the Rust, Go, TypeScript or Elixir adapter from a
+      Quint model.
       The model defaults to ${defaultSource}.
 
       --check            Fail if the generated files differ from the model (CI)
@@ -1660,6 +1943,12 @@ Usage:
                          TypeScript adapter. Without --rust, only the TypeScript
                          adapter is written. It imports quint-refinements/runtime
                          and reads the artifact from beside itself.
+      --elixir <path>    Elixir adapter. Without --rust, only the Elixir adapter
+                         is written. It needs the ${elixirRuntimeApp} package and
+                         reads the artifact when it is compiled.
+      --elixir-module <Name>
+                         Elixir module name (default: the model's module name in
+                         CamelCase, then .GeneratedRefinement)
       --compact          Write the artifact without indentation
 
 In the model:
@@ -1721,14 +2010,16 @@ Next:
     const go = optionValue(args, "--go");
     const typescript = optionValue(args, "--typescript");
     const goPackage = optionValue(args, "--go-package");
+    const elixir = optionValue(args, "--elixir");
+    const elixirModule = optionValue(args, "--elixir-module");
     const check = args.includes("--check");
     const compact = args.includes("--compact");
     const positional = args.filter(argument => argument !== "--check" && argument !== "--compact");
     if (positional.length > 1 || positional.some(argument => argument.startsWith("--"))) {
       fail(`unexpected compile arguments: ${positional.join(" ")}`);
     }
-    const result = compileProject(positional[0] ?? defaultSource, { module, check, compact, artifact, rust, go, goPackage, typescript });
-    const written = [result.artifactPath, result.generatedRustPath, result.generatedGoPath, result.generatedTypescriptPath]
+    const result = compileProject(positional[0] ?? defaultSource, { module, check, compact, artifact, rust, go, goPackage, typescript, elixir, elixirModule });
+    const written = [result.artifactPath, result.generatedRustPath, result.generatedGoPath, result.generatedTypescriptPath, result.generatedElixirPath]
       .filter(Boolean)
       .map(file => path.relative(process.cwd(), file));
     console.log(
