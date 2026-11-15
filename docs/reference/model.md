@@ -78,6 +78,7 @@ For each action a scenario calls, the action's body is split into conjuncts:
 | A conjunct without `state'` | A guard | The snapshot before the action |
 | `state' = ...` | The next-state assignment | The complete snapshot after the action |
 | No single assignment (`if`/`else`, `any`, `nondet`) | The state Quint reached | The complete snapshot after the action |
+| A guard or assignment that uses an operator outside the [supported set](#supported-expressions) | The state Quint reached, in place of all of the action's guards and its assignment | The complete snapshot after the action |
 
 Parameters are substituted, so `withdraw(4)` yields the guard `4 > 0`.
 
@@ -108,7 +109,10 @@ Compile the file that holds the scenarios. When more than one module declares `@
 
 ## Supported expressions
 
-Guards, assignments and assertions are evaluated by the Rust runtime, which supports the Quint operators listed in [`expression_vocabulary.json`](../../packages/compiler/expression_vocabulary.json). The compiler names any operator outside that set.
+Guards, assignments and assertions are evaluated by the runtimes, which support the Quint operators listed in [`expression_vocabulary.json`](../../packages/compiler/expression_vocabulary.json).
+
+1. An action may use any Quint operator. When one of its guards or its assignment uses an operator outside that set (`foldl`, `head`, `select` and `to` are examples), the action is checked against the state Quint reached after it, and its guards are not checked separately.
+2. An assertion in an observation block is always evaluated, so it must stay within the set.
 
 ## Names
 

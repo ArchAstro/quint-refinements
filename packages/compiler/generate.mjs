@@ -1317,7 +1317,7 @@ export function extractRun(
     fail(context, "run has no asserted observation");
   }
   if (deepInline) {
-    validateFullyRefinedOperators(steps, context);
+    dropUnevaluableObligations(steps);
   }
 
   return {
@@ -1330,34 +1330,35 @@ export function extractRun(
   };
 }
 
-export function validateFullyRefinedOperators(steps, context = "fully refined run") {
-  const operators = new Set();
-  const visit = expression => {
+// An action whose guards or assignment use an operator the runtimes cannot
+// evaluate keeps neither. `attachActionNext` then gives it the state Quint
+// reached after it, as it does for an action with no single assignment.
+export function dropUnevaluableObligations(steps) {
+  const usesUnsupported = expression => {
     if (!expression || typeof expression !== "object") {
-      return;
+      return false;
     }
     if (expression.kind === "call") {
-      operators.add(expression.operator);
-      expression.arguments.forEach(visit);
-    } else if (expression.kind === "lambda") {
-      visit(expression.body);
-    } else if (expression.kind === "let") {
-      visit(expression.value);
-      visit(expression.body);
+      return !supportedNormalizedExpressionOperatorSet.has(expression.operator) ||
+        expression.arguments.some(usesUnsupported);
     }
+    if (expression.kind === "lambda") {
+      return usesUnsupported(expression.body);
+    }
+    if (expression.kind === "let") {
+      return usesUnsupported(expression.value) || usesUnsupported(expression.body);
+    }
+    return false;
   };
   for (const step of steps) {
     if (step.kind !== "action") {
       continue;
     }
-    [...(step.guards ?? []), ...(step.next ?? [])]
-      .forEach(assertion => visit(assertion.expression));
-  }
-  const unsupported = [...operators]
-    .filter(operator => !supportedNormalizedExpressionOperatorSet.has(operator))
-    .sort();
-  if (unsupported.length > 0) {
-    fail(context, `uses unsupported normalized operators ${unsupported.join(", ")}`);
+    const obligations = [...(step.guards ?? []), ...(step.next ?? [])];
+    if (obligations.some(assertion => usesUnsupported(assertion.expression))) {
+      delete step.guards;
+      delete step.next;
+    }
   }
 }
 

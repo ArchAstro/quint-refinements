@@ -84,6 +84,7 @@ For each scenario, `refine_all`:
 Two cases refine this picture:
 
 1. **Actions without a single assignment.** An action written with `if`/`else`, `any` or `nondet` has no one `state' = ...` conjunct. For those, the obligation is the exact state Quint reached after that step in its own run of the scenario.
+   The same holds for an action whose guards or assignment use a Quint operator the runtimes do not implement: the compiler drops them and uses the reached state.
 2. **One command, several actions.** A `@primitive` method is called once and must return one snapshot per action. Each action's guards and assignment are checked against its own pair of snapshots.
 
 ## 5. Reading a failure

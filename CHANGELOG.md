@@ -7,6 +7,11 @@ and the Rust, Go, TypeScript and Elixir runtimes share one version.
 
 ### Changed
 
+- An action whose guards or assignment use a Quint operator outside the
+  runtimes' expression vocabulary no longer fails `compile` with `uses
+  unsupported normalized operators`. The action is checked against the state
+  Quint reached after it, as an action without a single assignment already
+  was, so a model may compute its next state with any Quint operator.
 - Artifact schema version 3: the artifact stores each distinct list of guards
   or next-state obligations once in a top-level `assertionLists`, and an action
   step names its lists by index with `guardList` and `nextList`. Steps used to
