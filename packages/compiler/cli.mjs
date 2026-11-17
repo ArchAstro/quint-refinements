@@ -115,6 +115,11 @@ function collectAstVocabulary(node, result, bound = new Set()) {
     return;
   }
   if (node.kind === "app") {
+    // A negative literal is written to the artifact as an integer, so its
+    // negation is not an operator the runtimes are asked for.
+    if (node.opcode === "iuminus" && node.args?.length === 1 && node.args[0].kind === "int") {
+      return;
+    }
     result.operators.add(node.opcode);
     result.retrieve.add(`operator:${node.opcode}`);
     const expression = expressionPath(node);

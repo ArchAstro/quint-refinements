@@ -271,6 +271,11 @@ function encodeExpressionNode(node, context, boundNames, closedVocab, defs, app)
     };
   }
   if (node.kind === "app") {
+    // Quint has no negative literal: `-1` parses as `iuminus(1)`. The
+    // runtimes read a negative integer, so the literal is written as one.
+    if (node.opcode === "iuminus" && node.args?.length === 1 && node.args[0].kind === "int") {
+      return { kind: "int", value: -node.args[0].value };
+    }
     if (closedVocab && !app.expressionOperatorSet.has(node.opcode)) {
       fail(context, `unsupported expression operator ${node.opcode}`);
     }
@@ -1423,6 +1428,14 @@ function concreteValue(node, context) {
   const values = node.args.map((argument, index) =>
     concreteValue(argument, `${context}.${node.opcode}[${index}]`)
   );
+  // Quint prints a negative integer as `-1`, which parses back as
+  // `iuminus(1)`. Without this it would be read as a variant named iuminus.
+  if (node.opcode === "iuminus") {
+    if (values.length !== 1 || typeof values[0] !== "number") {
+      fail(context, "fixture negation is not of one integer");
+    }
+    return -values[0];
+  }
   if (node.opcode === "Rec") {
     if (values.length % 2 !== 0) {
       fail(context, "record fixture has an odd number of entries");
