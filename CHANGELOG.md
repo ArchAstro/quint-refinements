@@ -27,6 +27,11 @@ and the Rust, Go, TypeScript and Elixir runtimes share one version.
 
 ### Fixed
 
+- A negative integer in the model reaches the runtimes as an integer. Quint
+  has no negative literal, so `-1` parses as `iuminus(1)`: a named constant of
+  `-1` was written to the artifact as a variant named `iuminus`, which no
+  implementation value could equal, and a `-1` inside an action sent that
+  action to the reached-state check. Both are now written as the integer.
 - A map in the observed state is taken as the implementation reports it: an
   entry the model's next state has and the snapshot lacks is now reported as
   `missing from observed state`. Every runtime filled such an entry in from the
