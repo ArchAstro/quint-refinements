@@ -325,6 +325,40 @@ test("a map constant reaches the runtime as ITF key/value pairs", () => {
   });
 });
 
+test("a negative integer reaches the runtime as an integer, in a constant and in an action", () => {
+  withTemporaryDirectory(directory => {
+    writeModel(directory, `module gauge {
+  type State = { level: int, floor: int }
+  pure val none = -1
+  pure val empty: State = { level: -2, floor: none }
+  var state: State
+  action init = all { state' = { level: 0, floor: 0 } }
+  action drain(target: State): bool = all { state' = target }
+  action sink = all { state.level == -2, state' = { ...state, level: -3 } }
+  /// @conformance
+  run drainRun = init
+    .then(drain(empty))
+    .then(sink)
+    .then(all { assert(state.level == -3 and state.floor == none), state' = state })
+}
+`);
+    const result = compileProject("model.qnt", { cwd: directory });
+    const text = fs.readFileSync(result.artifactPath, "utf8");
+    const artifact = JSON.parse(text);
+
+    // Quint parses \`-1\` as \`iuminus(1)\`. A constant used to come back as
+    // a variant named iuminus, which no implementation value could equal.
+    assert.deepEqual(artifact.fixtures.gauge, {
+      empty: { floor: -1, level: -2 },
+      none: -1,
+    });
+    // In an action the literal is an integer too, so the runtimes evaluate
+    // the guard and the assignment instead of meeting an unknown operator.
+    assert.equal(text.includes("iuminus"), false);
+    assert.equal(text.includes('{"kind":"int","value":-3}') || text.includes('"value": -3'), true);
+  });
+});
+
 test("every generated obligation is checked at runtime", () => {
   withTemporaryDirectory(directory => {
     const { artifact } = compileShop(directory);
