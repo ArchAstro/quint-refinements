@@ -35,6 +35,15 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm test
+      # `quint run` downloads its Rust evaluator from a GitHub release with an
+      # unauthenticated API request. Hosted runners share addresses, so that
+      # request is sometimes refused with "rate limit exceeded". Keeping
+      # ~/.quint between runs leaves the download to the first run per
+      # lockfile.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.quint
+          key: quint-home-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Check the Raft models' safety properties
         run: |
           for model in raft raft_network; do

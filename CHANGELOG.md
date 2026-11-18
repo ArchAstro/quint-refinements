@@ -27,6 +27,10 @@ and the Rust, Go, TypeScript and Elixir runtimes share one version.
 
 ### Fixed
 
+- The generated Elixir adapter is what `mix format` writes when the artifact
+  path makes the `@artifact_path` line longer than 98 columns. It used to be
+  written on one line, so a project-wide `mix format` rewrote the adapter and
+  `compile --check` then reported it stale.
 - A negative integer in the model reaches the runtimes as an integer. Quint
   has no negative literal, so `-1` parses as `iuminus(1)`: a named constant of
   `-1` was written to the artifact as a variant named `iuminus`, which no
