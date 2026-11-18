@@ -1179,6 +1179,24 @@ function checkElixirNames(primitives) {
   }
 }
 
+// The generated adapter is checked byte for byte by `compile --check`, so it
+// has to be what `mix format` writes or a project-wide format makes it
+// stale. A path that pushes this line past the formatter's 98 columns is
+// broken the way the formatter breaks a call.
+function elixirArtifactPath(artifactInclude) {
+  const line = `  @artifact_path Path.expand(${elixirString(artifactInclude)}, __DIR__)`;
+  if (line.length <= 98) {
+    return line;
+  }
+  const argument = " ".repeat(19);
+  return [
+    "  @artifact_path Path.expand(",
+    `${argument}${elixirString(artifactInclude)},`,
+    `${argument}__DIR__`,
+    `${" ".repeat(17)})`,
+  ].join("\n");
+}
+
 // A JSON string is an Elixir string once `#{` cannot start an interpolation.
 function elixirString(value) {
   return JSON.stringify(value).replace(/#\{/g, "\\#{");
@@ -1267,7 +1285,7 @@ defmodule ${moduleName} do
 
   @namespace ${elixirString(project.module)}
 
-  @artifact_path Path.expand(${elixirString(project.artifactInclude)}, __DIR__)
+${elixirArtifactPath(project.artifactInclude)}
   @external_resource @artifact_path
   @artifact_json File.read!(@artifact_path)
 

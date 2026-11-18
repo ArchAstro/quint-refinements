@@ -1070,6 +1070,31 @@ test("--elixir writes only the Elixir adapter and embeds the artifact from besid
   });
 });
 
+test("the Elixir adapter is what mix format writes when the artifact path makes a long line", () => {
+  withTemporaryDirectory(directory => {
+    writeModel(directory, bankModel);
+    const artifact = "generated/deeply/nested/directory/for/the/refinement/artifact/of/this/model/bank.json";
+    compileProject("model.qnt", { cwd: directory, artifact, elixir: "adapter/generated.ex" });
+    const source = fs.readFileSync(path.join(directory, "adapter", "generated.ex"), "utf8");
+
+    // \`compile --check\` compares the adapter byte for byte, so a line the
+    // formatter would break has to be written already broken: 98 columns,
+    // arguments under the opening parenthesis's argument column.
+    const include = path.relative(path.join(directory, "adapter"), path.join(directory, artifact));
+    assert.ok(`  @artifact_path Path.expand(${JSON.stringify(include)}, __DIR__)`.length > 98);
+    assert.ok(source.includes([
+      "  @artifact_path Path.expand(",
+      `                   ${JSON.stringify(include)},`,
+      "                   __DIR__",
+      "                 )",
+      "  @external_resource @artifact_path",
+    ].join("\n")));
+    for (const line of source.split("\n")) {
+      assert.ok(line.length <= 98 || line.includes(JSON.stringify(include)), `over 98 columns: ${line}`);
+    }
+  });
+});
+
 test("an Elixir adapter without a @primitive has no unused helper", () => {
   withTemporaryDirectory(directory => {
     writeModel(directory, bankModel);
