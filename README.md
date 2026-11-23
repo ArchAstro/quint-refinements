@@ -57,6 +57,8 @@ Each page builds a complete project that CI compiles and runs.
 | 5 | [Raft over a real network](docs/guides/raft-network.md) | Messages that are lost, delayed, reordered and duplicated; partitions |
 | 6 | [CI](docs/guides/ci.md) | `compile --check`, generating into an existing crate |
 
+Working with a coding agent? `npx quint-refinements skill` installs an [agent skill](skills/quint-refinements/SKILL.md) into `.claude/skills`. It holds the method around the tool: what to model, how to connect it to code, and how to show a passing run is not a false pass.
+
 Then: [how it works](docs/how-it-works.md) and [troubleshooting](docs/troubleshooting.md). Reference: [command line](docs/reference/cli.md), [model annotations and rules](docs/reference/model.md), [generated Rust](docs/reference/rust.md).
 
 ## What you write in the model
@@ -224,6 +226,7 @@ quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--go <path>] [--go-package <name>]
                           [--typescript <path>] [--elixir <path>]
                           [--elixir-module <Name>] [--compact]
+quint-refinements skill [--dir <path>]
 ```
 
 `compile` defaults to `model.qnt`. `--artifact` and `--rust` place the generated files in an existing crate layout; with them the command does not scaffold `src/main.rs`. `--go`, `--typescript` and `--elixir` write a Go, TypeScript or Elixir adapter instead of the Rust one (add `--rust` to write Rust as well).
@@ -264,6 +267,7 @@ examples/typescript/ the same models implemented in TypeScript
 examples/elixir/     the bank and the two-phase commit implemented in Elixir
 conformance/         artifact schema and golden cases every binding must pass
 docs/                guides and reference, as Markdown
+skills/              an agent skill for modelling and refining with this tool
 website/             the documentation site built from docs/
 ```
 

@@ -5,6 +5,15 @@ and the Rust, Go, TypeScript and Elixir runtimes share one version.
 
 ## Unreleased
 
+### Added
+
+- `quint-refinements skill` installs an agent skill into `.claude/skills` (or
+  `--dir <path>`). The skill, in `skills/quint-refinements`, holds the working
+  method around the tool. It covers what to model, model shapes for time, crashes, networks,
+  databases and concurrency, writing adapters that read real state, Quint
+  errors and their fixes, and the checks that show a passing run could have
+  failed.
+
 ### Changed
 
 - An action whose guards or assignment use a Quint operator outside the
