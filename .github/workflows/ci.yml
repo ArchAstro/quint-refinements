@@ -35,15 +35,25 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm test
-      # `quint run` downloads its Rust evaluator from a GitHub release with an
-      # unauthenticated API request. Hosted runners share addresses, so that
-      # request is sometimes refused with "rate limit exceeded". Keeping
-      # ~/.quint between runs leaves the download to the first run per
-      # lockfile.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # `quint run` downloads its Rust evaluator on first use with one
+      # unauthenticated GitHub API request and no retry. Hosted runners share
+      # addresses, so that request is sometimes refused ("rate limit exceeded")
+      # or times out (504). Install it here with retries, and keep ~/.quint
+      # between runs so the download happens once per lockfile. The cache is
+      # saved right after the install, not at the end of the job, so a later
+      # failing step does not leave the next run without it.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: quint-home
         with:
           path: ~/.quint
           key: quint-home-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Quint's Rust evaluator
+        run: node scripts/install-quint-evaluator.mjs
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.quint-home.outputs.cache-hit != 'true'
+        with:
+          path: ~/.quint
+          key: ${{ steps.quint-home.outputs.cache-primary-key }}
       - name: Check the Raft models' safety properties
         run: |
           for model in raft raft_network; do
