@@ -31,6 +31,7 @@
     "packages/compiler/generate.mjs",
     "packages/compiler/expression_vocabulary.json",
     "packages/compiler/README.md",
+    "skills",
     "conformance/artifact.schema.json",
     "bindings/typescript/dist",
     "bindings/typescript/README.md"

@@ -7,6 +7,7 @@ quint-refinements compile [spec.qnt] [--check] [--module <name>]
                           [--go <path>] [--go-package <name>]
                           [--typescript <path>] [--elixir <path>]
                           [--elixir-module <Name>] [--compact]
+quint-refinements skill [--dir <path>]
 quint-refinements --version
 quint-refinements --help
 ```
@@ -98,3 +99,17 @@ The Go adapter is described in [Generated Go](go.md), the TypeScript adapter in 
 The npm package (which includes the TypeScript runtime, `quint-refinements/runtime`), the Rust crate and the Go module release together under one version number. Keep `quint-refinements` in `package.json` and in `Cargo.toml` (or the Go module requirement) on the same version.
 
 See also: [keeping generated files honest in CI](../guides/ci.md) and [troubleshooting](../troubleshooting.md).
+
+## `skill`
+
+```console
+npx quint-refinements skill
+```
+
+Copies the agent skill that ships with the package into `.claude/skills/quint-refinements`. The skill is the working method around the tool for a coding agent: what to model, how to shape the model, how to write an adapter that reads real state, and how to show a passing run could have failed.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir <path>` | `.claude/skills` | The skills directory to install into. The skill goes in `<path>/quint-refinements`. |
+
+An existing copy is replaced, so run it again after upgrading the package. Commit the directory if your team shares agent skills through the repository.

@@ -12,6 +12,7 @@ import {
   elixirFunctionName,
   elixirModuleName,
   goMethodName,
+  installSkill,
   typescriptMethodName,
 } from "./cli.mjs";
 import { defineConformanceApp, generateConformanceTraces, shareAssertionLists } from "./generate.mjs";
@@ -574,6 +575,35 @@ test("the low-level generator keeps observation helpers by name unless the app o
   });
 });
 
+test("skill installs the agent skill, and replaces an older copy", () => {
+  withTemporaryDirectory(directory => {
+    const cli = path.join(compilerRoot, "cli.mjs");
+    const installed = spawnSync(process.execPath, [cli, "skill"], { cwd: directory, encoding: "utf8" });
+    assert.equal(installed.status, 0, installed.stderr);
+    const skill = path.join(directory, ".claude", "skills", "quint-refinements");
+    assert.match(installed.stdout, /installed the quint-refinements skill in \.claude/);
+    assert.match(fs.readFileSync(path.join(skill, "SKILL.md"), "utf8"), /^---\nname: quint-refinements\n/);
+    // Every file the skill links to arrives with it.
+    for (const [, target] of fs.readFileSync(path.join(skill, "SKILL.md"), "utf8").matchAll(/\]\((?!https?:)([^)#]+)/g)) {
+      assert.ok(fs.existsSync(path.join(skill, target)), `SKILL.md links to ${target}`);
+    }
+
+    // A file from an older version of the skill does not survive an upgrade.
+    fs.writeFileSync(path.join(skill, "references", "removed.md"), "stale");
+    const destination = installSkill({ directory: path.join(directory, ".claude", "skills") });
+    assert.equal(fs.realpathSync(destination), fs.realpathSync(skill));
+    assert.ok(!fs.existsSync(path.join(skill, "references", "removed.md")));
+
+    const elsewhere = spawnSync(process.execPath, [cli, "skill", "--dir", ".agents/skills"], { cwd: directory, encoding: "utf8" });
+    assert.equal(elsewhere.status, 0, elsewhere.stderr);
+    assert.ok(fs.existsSync(path.join(directory, ".agents", "skills", "quint-refinements", "example", "lease.qnt")));
+
+    const unexpected = spawnSync(process.execPath, [cli, "skill", "extra"], { cwd: directory, encoding: "utf8" });
+    assert.equal(unexpected.status, 1);
+    assert.match(unexpected.stderr, /unexpected skill arguments: extra/);
+  });
+});
+
 test("the npm-style symlink invokes the CLI entrypoint", () => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "quint-refinements-bin-test-"));
   try {
@@ -655,6 +685,13 @@ test("a packed npm install creates and compiles a project with hoisted Quint", (
       encoding: "utf8",
     });
     assert.equal(checked.status, 0, checked.stderr);
+
+    // The published package carries the skill, so `npx quint-refinements skill` works.
+    const skilled = spawnSync(binary, ["skill"], { cwd: consumerDirectory, encoding: "utf8" });
+    assert.equal(skilled.status, 0, skilled.stderr);
+    assert.ok(fs.existsSync(
+      path.join(consumerDirectory, ".claude", "skills", "quint-refinements", "references", "modeling.md"),
+    ));
 
     // Rust boundary: the manifest exactly as scaffolded, resolved to this checkout's runtime.
     const cargo = spawnSync(

@@ -1940,6 +1940,21 @@ export function createProject(name, options = {}) {
 }
 
 const defaultSource = "model.qnt";
+const skillName = "quint-refinements";
+const defaultSkillsDirectory = path.join(".claude", "skills");
+
+// Copies the agent skill this package ships into a project, replacing an older
+// copy so the skill matches the installed compiler.
+export function installSkill(options = {}) {
+  const source = path.resolve(packageRoot, "..", "..", "skills", skillName);
+  if (!fs.existsSync(path.join(source, "SKILL.md"))) {
+    fail(`this install of quint-refinements does not include the skill (expected ${source})`);
+  }
+  const destination = path.resolve(options.directory ?? defaultSkillsDirectory, skillName);
+  fs.rmSync(destination, { recursive: true, force: true });
+  fs.cpSync(source, destination, { recursive: true });
+  return destination;
+}
 
 function usage() {
   console.log(`quint-refinements: check a Rust, Go, TypeScript or Elixir implementation against a Quint model
@@ -1973,6 +1988,11 @@ Usage:
                          Elixir module name (default: the model's module name in
                          CamelCase, then .GeneratedRefinement)
       --compact          Write the artifact without indentation
+
+  quint-refinements skill [--dir <path>]
+      Install the agent skill for modelling and refining with this tool into
+      <path>/${skillName} (default: ${defaultSkillsDirectory}). An existing
+      copy is replaced.
 
 In the model:
   /// @conformance                       marks a run as a refinement scenario
@@ -2050,6 +2070,15 @@ Next:
         ? `${result.project.module} generated artifacts are current`
         : `generated ${written.join(" and ")}`,
     );
+    return;
+  }
+  if (command === "skill") {
+    const directory = optionValue(args, "--dir");
+    if (args.length > 0) {
+      fail(`unexpected skill arguments: ${args.join(" ")}`);
+    }
+    const destination = installSkill({ directory });
+    console.log(`installed the ${skillName} skill in ${path.relative(process.cwd(), destination) || "."}`);
     return;
   }
   fail(`unknown command ${command}; run quint-refinements --help`);
